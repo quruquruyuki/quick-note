@@ -69,11 +69,11 @@
   .spacer { flex: 1; }
   .icon-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 6px; }
 
-  /* ── 入力（見た目は1つの欄。1行目＝タイトル 20px、2行目から＝本文 18px） ── */
+  /* ── 入力（見た目は1つの欄。1行目＝タイトル 20px、2行目から＝本文 17px） ── */
   main { padding: 6px 20px 16px; max-width: 720px; margin: 0 auto; }
   #title, #body { width: 100%; border: none; outline: none; background: transparent; color: var(--ink); display: block; }
   #title { font-size: var(--fs-input); line-height: 1.4; padding: 6px 0 2px; height: calc(var(--fs-input) * 1.4 + 8px); }
-  #body { font-size: calc(var(--fs-input) - 2px); line-height: 1.4; resize: none; padding: 0 0 6px; min-height: 18vh; color: var(--ink2); }
+  #body { font-size: 17px; line-height: 1.45; resize: none; padding: 0 0 6px; min-height: 18vh; color: var(--ink2); }
   #title::placeholder, #body::placeholder { color: #C9C7C2; }
 
   /* プロパティ（大きめのボタンで、歩きながらでも押しやすく） */
@@ -226,7 +226,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.15-6";     // 更新のたびに変える
+const APP_VERSION = "2026.11.15-7";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
