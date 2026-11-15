@@ -226,7 +226,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.15-5";     // 更新のたびに変える
+const APP_VERSION = "2026.11.15-6";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -244,6 +244,8 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0
 const todayStr = () => ymd(new Date());
 function jpDate(s) { const [y, m, d] = s.split("-").map(Number); const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()]; return `${y}年${m}月${d}日（${w}）`; }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+const NOTION_FILE_LIMIT = 5 * 1024 * 1024;   // Notion無料プランの1ファイル上限
+const fmtSize = (b) => b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + "MB" : Math.max(1, Math.round(b / 1024)) + "KB";
 const mmss = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
 // Notion の色（ライトモードのタグ色）
@@ -415,7 +417,7 @@ function renderAttachments() {
   state.audios.forEach((a, i) => {
     html += `<div class="audio-item">
       <button class="play" data-play="${i}"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg></button>
-      <div class="meta">録音 ${i + 1}<small>${mmss(a.sec)} ・ 文字起こし済み</small></div>
+      <div class="meta">録音 ${i + 1}<small>${mmss(a.sec)} ・ <span style="${a.blob.size > NOTION_FILE_LIMIT ? "color:var(--red)" : ""}">${fmtSize(a.blob.size)}${a.blob.size > NOTION_FILE_LIMIT ? " 上限超え" : ""}</span>${a.text === false ? " ・ 文字起こし失敗" : ""}</small></div>
       <label><input type="checkbox" class="toggle" data-keep="${i}" ${a.keep ? "checked" : ""}>音声も保存</label>
       <button class="del" data-del-audio="${i}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>`;
@@ -574,7 +576,7 @@ async function onRecStop() {
   $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
   $("recLabel").querySelector("i").classList.add("hidden");
   $("recStatus").textContent = "文字起こし中…";
-  const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: true };
+  const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
   try {
     const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`);
     insertText(text);
@@ -583,6 +585,7 @@ async function onRecStop() {
     renderAttachments(); renderProps(); updateSaveBtn();
   } catch (e) {
     // 文字起こしに失敗しても録音は残す
+    audio.text = false;
     state.audios.push(audio);
     renderAttachments(); updateSaveBtn();
     toast("文字起こしに失敗しました: " + e.message, true);
@@ -605,16 +608,21 @@ async function save() {
   if (state.saving) return;
   state.saving = true; updateSaveBtn();
   try {
+    // 写真・音声のアップロードに失敗しても、文字とプロパティは必ず保存する
     const attachments = [];
+    const failed = [];
     for (const im of state.images) {
-      const { id } = await apiFile("upload", im.file);
-      attachments.push({ id, kind: "image" });
+      try {
+        const { id } = await apiFile("upload", im.file);
+        attachments.push({ id, kind: "image" });
+      } catch { failed.push("写真"); }
     }
     for (const a of state.audios.filter((x) => x.keep)) {
-      if (a.blob.size > 5 * 1024 * 1024) toast("録音が5MBを超えています。Notionの無料プランだと保存できないことがあります", true);
-      const { id } = await apiFile("upload", a.blob, `voice-${Date.now()}.${a.ext}`);
-      // webm は Notion の音声ブロックが対応していないのでファイルとして添付
-      attachments.push({ id, kind: a.ext === "webm" ? "file" : "audio" });
+      try {
+        const { id } = await apiFile("upload", a.blob, `voice-${Date.now()}.${a.ext}`);
+        // webm は Notion の音声ブロックが対応していないのでファイルとして添付
+        attachments.push({ id, kind: a.ext === "webm" ? "file" : "audio" });
+      } catch { failed.push(`音声（${fmtSize(a.blob.size)}）`); }
     }
     const res = await api({
       action: "save",
@@ -623,7 +631,8 @@ async function save() {
       props: state.values,
       attachments,
     });
-    toast("保存しました", false, res.url);
+    if (failed.length) toast(`文字は保存しました。${failed.join("・")}は添付できませんでした`, true, res.url);
+    else toast("保存しました", false, res.url);
     resetForm();
   } catch (e) {
     toast("保存できませんでした: " + e.message, true);
