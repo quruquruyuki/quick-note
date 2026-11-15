@@ -1,6 +1,6 @@
 {
-  "name": "クイックノート",
-  "short_name": "クイックノート",
+  "name": "Notion Quick",
+  "short_name": "Notion Quick",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

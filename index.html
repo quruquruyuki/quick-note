@@ -6,144 +6,160 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="クイックノート">
+<meta name="apple-mobile-web-app-title" content="Notion Quick">
 <meta name="theme-color" content="#FFFFFF">
 <link rel="apple-touch-icon" href="icon-180.png">
 <link rel="icon" type="image/png" href="icon-192.png">
 <link rel="manifest" href="manifest.json">
-<title>クイックノート</title>
+<title>Notion Quick</title>
 <style>
   :root {
     --bg: #FFFFFF;
-    --ink: #37352F;
-    --sub: #9B9A97;
+    --ink: #191919;
+    --ink2: #37352F;
+    --sub: #787774;
+    --faint: #A5A29C;
     --line: #EDECE9;
+    --hover: #F1F1EF;
     --field: #F7F7F5;
-    --accent: #2F80ED;
-    --accent-soft: #E8F1FD;
-    --rec: #E5484D;
-    --radius: 12px;
+    --red: #E03E3E;
     --safe-t: env(safe-area-inset-top, 0px);
     --safe-b: env(safe-area-inset-bottom, 0px);
   }
   * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  html, body { margin: 0; background: var(--bg); color: var(--ink2); }
   body {
-    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
-    font-size: 17px; line-height: 1.6;
+    font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    font-size: 16px; line-height: 1.5; -webkit-font-smoothing: antialiased;
   }
   button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
   input, textarea { font: inherit; color: inherit; }
   .hidden { display: none !important; }
-  svg { display: block; }
+  svg { display: block; flex: none; }
 
   /* ── ログイン ── */
-  #login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--field); }
-  .login-box { width: 100%; max-width: 360px; background: #fff; border-radius: 16px; padding: 28px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-  .login-box h1 { font-size: 22px; margin: 0 0 4px; }
-  .login-box p { margin: 0 0 20px; color: var(--sub); font-size: 14px; }
-  .login-box input { width: 100%; font-size: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); margin-bottom: 10px; }
-  .primary { width: 100%; background: var(--accent); color: #fff; border-radius: 10px; padding: 12px; font-weight: 600; }
-  .primary:disabled { opacity: .5; }
-  .err { color: var(--rec); font-size: 14px; margin-top: 10px; min-height: 1em; }
+  #login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+  .login-box { width: 100%; max-width: 340px; }
+  .login-box img { width: 56px; height: 56px; border-radius: 13px; border: 1px solid var(--line); margin-bottom: 18px; }
+  .login-box h1 { font-size: 26px; font-weight: 700; color: var(--ink); margin: 0 0 4px; letter-spacing: -.01em; }
+  .login-box p { margin: 0 0 24px; color: var(--sub); font-size: 14px; }
+  .login-box input { width: 100%; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); margin-bottom: 10px; outline: none; }
+  .login-box input:focus { border-color: #C7C6C3; background: #fff; }
+  .primary { width: 100%; background: var(--ink); color: #fff; border-radius: 8px; padding: 11px; font-weight: 600; }
+  .primary:disabled { opacity: .4; }
+  .err { color: var(--red); font-size: 13px; margin-top: 10px; min-height: 1em; }
 
   /* ── ヘッダー ── */
   header {
-    position: sticky; top: 0; z-index: 5; background: var(--bg);
-    padding: calc(var(--safe-t) + 10px) 16px 8px; display: flex; align-items: center; gap: 8px;
+    position: sticky; top: 0; z-index: 5; background: rgba(255,255,255,.94); backdrop-filter: blur(10px);
+    padding: calc(var(--safe-t) + 8px) 12px 8px; display: flex; align-items: center; gap: 4px;
   }
-  #dbBtn { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 20px; font-weight: 600; min-width: 0; }
+  #dbBtn { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; min-width: 0; color: var(--ink); font-weight: 600; font-size: 15px; }
+  #dbBtn:active, .icon-btn:active { background: var(--hover); }
+  #dbIcon { font-size: 18px; line-height: 1; color: var(--sub); }
   #dbBtn .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #dbBtn .chev { color: var(--faint); }
   .spacer { flex: 1; }
-  .icon-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: var(--accent); border-radius: 10px; }
-  .icon-btn:active { background: var(--accent-soft); }
+  .icon-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 6px; }
 
-  /* ── 入力 ── */
-  main { padding: 0 16px calc(var(--safe-b) + 110px); }
-  #text {
-    width: 100%; border: none; outline: none; resize: none; background: transparent;
-    min-height: 34vh; padding: 8px 0; font-size: 18px; line-height: 1.7;
+  /* ── ページ ── */
+  main { padding: 18px 24px calc(var(--safe-b) + 110px); max-width: 720px; margin: 0 auto; }
+  #title {
+    width: 100%; border: none; outline: none; background: transparent; padding: 0; margin: 0 0 14px;
+    font-size: 30px; font-weight: 700; line-height: 1.25; color: var(--ink); letter-spacing: -.01em;
   }
-  #text::placeholder { color: #C4C3C0; }
-  .hint { font-size: 12px; color: var(--sub); margin: -4px 0 10px; }
+  #title::placeholder { color: #E1E0DD; }
+
+  /* プロパティ（Notionのページ上部と同じ並び） */
+  .prop { display: flex; align-items: flex-start; min-height: 34px; padding: 3px 0; }
+  .prop-name { width: 104px; flex: none; display: flex; align-items: center; gap: 6px; color: var(--sub); font-size: 14px; padding: 5px 0; }
+  .prop-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .prop-val { flex: 1; min-width: 0; font-size: 14px; color: var(--ink2); padding: 4px 6px; border-radius: 4px; position: relative; }
+  .prop-val.tap:active { background: var(--hover); }
+  .prop-val .empty { color: var(--faint); }
+  .prop-val input[type=date] { position: absolute; inset: 0; opacity: 0; width: 100%; }
+  .prop-val input[type=url] { width: 100%; border: none; outline: none; background: transparent; font-size: 14px; padding: 0; }
+  .prop-val input[type=url]::placeholder { color: var(--faint); }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 1px 8px; border-radius: 4px; font-size: 14px; line-height: 22px; opacity: .38; }
+  .chip.on { opacity: 1; }
+  .box { width: 18px; height: 18px; border-radius: 3px; border: 1.5px solid #C7C6C3; display: flex; align-items: center; justify-content: center; margin-top: 3px; }
+  .box.on { background: #2383E2; border-color: #2383E2; color: #fff; }
+  hr.div { border: none; border-top: 1px solid var(--line); margin: 12px 0 14px; }
+
+  #body {
+    width: 100%; border: none; outline: none; resize: none; background: transparent; padding: 0;
+    min-height: 30vh; font-size: 16px; line-height: 1.65; color: var(--ink2);
+  }
+  #body::placeholder { color: var(--faint); }
 
   /* 添付 */
-  #attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+  #attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
   #attachments:empty { display: none; }
-  .thumb { position: relative; width: 76px; height: 76px; border-radius: 10px; overflow: hidden; background: var(--field); }
+  .thumb { position: relative; width: 84px; height: 84px; border-radius: 6px; overflow: hidden; background: var(--field); border: 1px solid var(--line); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; }
-  .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; line-height: 22px; text-align: center; }
-  .audio-item { display: flex; align-items: center; gap: 10px; background: var(--field); border-radius: 10px; padding: 8px 10px; width: 100%; }
-  .audio-item .play { width: 32px; height: 32px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; color: var(--accent); flex: none; }
-  .audio-item .meta { flex: 1; font-size: 14px; min-width: 0; }
+  .x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 4px; background: rgba(25,25,25,.6); color: #fff; font-size: 12px; line-height: 20px; text-align: center; }
+  .audio-item { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100%; background: #fff; }
+  .audio-item .play { width: 30px; height: 30px; border-radius: 50%; background: var(--hover); display: flex; align-items: center; justify-content: center; color: var(--ink); }
+  .audio-item .meta { flex: 1; font-size: 14px; min-width: 0; color: var(--ink); }
   .audio-item .meta small { display: block; color: var(--sub); font-size: 12px; }
-  .audio-item label { font-size: 13px; color: var(--sub); display: flex; align-items: center; gap: 4px; white-space: nowrap; }
-  .audio-item .del { color: var(--sub); font-size: 20px; padding: 0 4px; }
-
-  /* プロパティ */
-  .prop-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 16px; }
-  .prop-row .cal { color: var(--accent); }
-  .date-field { position: relative; display: inline-flex; align-items: center; }
-  .date-field input { position: absolute; inset: 0; opacity: 0; width: 100%; }
-  .link-btn { color: var(--sub); margin-left: 6px; }
-  .link-btn.on { color: var(--accent); }
-  .url-input { width: 100%; border: 1px solid var(--line); background: var(--field); border-radius: 10px; padding: 10px 12px; font-size: 15px; margin: 4px 0; }
-  .prop-label { font-size: 12px; color: var(--sub); margin: 10px 0 4px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip { padding: 5px 12px; border-radius: 8px; font-size: 15px; border: 2px solid transparent; }
-  .chip.on { border-color: var(--ink); font-weight: 600; }
-  .chip.check { background: var(--field); }
-  .chip.check.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .audio-item label { font-size: 12px; color: var(--sub); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .audio-item .del { color: var(--faint); padding: 4px; }
 
   /* 下のバー */
   #bar {
-    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: rgba(255,255,255,.96);
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: rgba(255,255,255,.94); backdrop-filter: blur(10px);
     border-top: 1px solid var(--line); padding: 10px 16px calc(var(--safe-b) + 10px);
-    display: flex; align-items: center; gap: 12px; backdrop-filter: blur(8px);
+    display: flex; align-items: center; gap: 10px;
   }
-  .tool { width: 46px; height: 46px; border-radius: 50%; background: var(--field); display: flex; align-items: center; justify-content: center; color: var(--ink); flex: none; }
-  #recBtn { background: #FDECEC; color: var(--rec); }
-  #saveBtn { flex: 1; height: 46px; border-radius: 23px; background: var(--accent); color: #fff; font-weight: 600; font-size: 17px; }
-  #saveBtn:disabled { background: #C9D9F2; }
+  .tool { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink2); background: #fff; }
+  .tool:active { background: var(--hover); }
+  #recBtn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); position: absolute; top: 9px; right: 9px; }
+  #recBtn { position: relative; }
+  #saveBtn { flex: 1; height: 44px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 600; font-size: 16px; }
+  #saveBtn:disabled { background: #E3E2E0; color: #A5A29C; }
 
   /* 録音中 */
-  #recPanel { position: fixed; inset: 0; z-index: 20; background: rgba(255,255,255,.97); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
-  #recTime { font-size: 44px; font-weight: 300; font-variant-numeric: tabular-nums; }
-  #recStatus { color: var(--sub); font-size: 15px; }
-  #recStop { width: 84px; height: 84px; border-radius: 50%; background: var(--rec); display: flex; align-items: center; justify-content: center; animation: pulse 1.4s infinite; }
-  #recStop span { width: 28px; height: 28px; border-radius: 6px; background: #fff; }
-  #recCancel { color: var(--sub); font-size: 15px; }
-  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(229,72,77,.45); } 70% { box-shadow: 0 0 0 22px rgba(229,72,77,0); } 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0); } }
-  .spinner { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  #recPanel { position: fixed; inset: 0; z-index: 20; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; }
+  #recLabel { display: flex; align-items: center; gap: 8px; color: var(--sub); font-size: 14px; }
+  #recLabel i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: blink 1.2s infinite; }
+  #recTime { font-size: 56px; font-weight: 300; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
+  #recStop { width: 72px; height: 72px; border-radius: 50%; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; }
+  #recStop span { width: 24px; height: 24px; border-radius: 5px; background: var(--ink); }
+  #recCancel { color: var(--sub); font-size: 14px; padding: 8px 14px; border-radius: 6px; }
+  @keyframes blink { 50% { opacity: .25; } }
+  .spinner { width: 28px; height: 28px; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
 
-  /* シート */
-  .sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.3); display: flex; align-items: flex-end; }
-  .sheet { width: 100%; max-height: 82vh; overflow-y: auto; background: #fff; border-radius: 16px 16px 0 0; padding: 14px 16px calc(var(--safe-b) + 18px); }
-  .sheet h2 { font-size: 17px; margin: 4px 0 12px; display: flex; align-items: center; }
-  .sheet h2 .close { margin-left: auto; color: var(--sub); font-size: 15px; font-weight: 400; }
-  .list-item { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
-  .list-item:last-child { border-bottom: none; }
-  .list-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .list-item .s { color: var(--sub); font-size: 13px; white-space: nowrap; }
-  .list-item.current .t { color: var(--accent); font-weight: 600; }
-  .star { font-size: 20px; color: #D3D1CB; }
-  .star.on { color: #F5B400; }
-  .toggle { width: 22px; height: 22px; accent-color: var(--accent); }
-  .muted { color: var(--sub); font-size: 13px; margin: 6px 0 12px; }
-  .link { color: var(--accent); text-decoration: none; }
-  .sub-btn { width: 100%; padding: 12px; border-radius: 10px; background: var(--field); margin-top: 10px; }
+  /* シート（Notionのメニュー風） */
+  .sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgba(15,15,15,.25); display: flex; align-items: flex-end; }
+  .sheet { width: 100%; max-height: 80vh; overflow-y: auto; background: #fff; border-radius: 12px 12px 0 0; padding: 8px 8px calc(var(--safe-b) + 14px); box-shadow: 0 -4px 24px rgba(0,0,0,.08); }
+  .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 2px auto 8px; }
+  .sheet h2 { font-size: 12px; font-weight: 600; color: var(--sub); margin: 6px 10px 4px; display: flex; align-items: center; }
+  .sheet h2 .close { margin-left: auto; color: var(--sub); font-weight: 400; }
+  .item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 6px; width: 100%; text-align: left; color: var(--ink2); text-decoration: none; font-size: 15px; }
+  .item:active { background: var(--hover); }
+  .item .ic { width: 22px; text-align: center; color: var(--sub); }
+  .item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .item .s { color: var(--faint); font-size: 12px; white-space: nowrap; }
+  .item .check { color: var(--ink); }
+  .star { color: #D3D1CB; font-size: 17px; width: 22px; }
+  .star.on { color: var(--ink); }
+  .toggle { width: 18px; height: 18px; accent-color: #191919; }
+  .muted { color: var(--sub); font-size: 12px; margin: 6px 10px 10px; line-height: 1.6; }
+  .sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
-  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%); z-index: 40; background: rgba(40,40,40,.92); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: 90vw; text-align: center; }
-  .toast.bad { background: rgba(200,50,50,.95); }
-  .toast a { color: #9CD0FF; margin-left: 8px; }
+  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 80px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 9px 14px; border-radius: 8px; font-size: 14px; max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+  .toast.bad { background: var(--red); }
+  .toast a { color: #fff; text-decoration: underline; margin-left: 10px; }
 </style>
 </head>
 <body>
 
 <section id="login" class="hidden">
   <form class="login-box" id="loginForm">
-    <h1>クイックノート</h1>
+    <img src="icon-180.png" alt="">
+    <h1>Notion Quick</h1>
     <p>日記アプリと同じアカウントでログイン</p>
     <input id="email" type="email" placeholder="メールアドレス" autocomplete="username" required>
     <input id="password" type="password" placeholder="パスワード" autocomplete="current-password" required>
@@ -154,31 +170,35 @@
 
 <section id="app" class="hidden">
   <header>
-    <button id="dbBtn"><span class="name" id="dbName">読み込み中…</span>
-      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+    <button id="dbBtn">
+      <span id="dbIcon"></span>
+      <span class="name" id="dbName">読み込み中…</span>
+      <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
     </button>
     <div class="spacer"></div>
     <button class="icon-btn" id="historyBtn" aria-label="最近の保存">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4" stroke-linecap="round"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
     </button>
     <button class="icon-btn" id="settingsBtn" aria-label="設定">
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
     </button>
   </header>
 
   <main>
-    <textarea id="text" placeholder="ここに書く"></textarea>
-    <div class="hint" id="hint"></div>
-    <div id="attachments"></div>
+    <input id="title" placeholder="無題" autocomplete="off" enterkeyhint="next">
     <div id="props"></div>
+    <hr class="div">
+    <textarea id="body" placeholder="ここに書く…"></textarea>
+    <div id="attachments"></div>
   </main>
 
   <div id="bar">
     <button class="tool" id="photoBtn" aria-label="写真">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
     <button class="tool" id="recBtn" aria-label="録音">
-      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      <span class="dot"></span>
     </button>
     <button id="saveBtn" disabled>保存</button>
   </div>
@@ -186,8 +206,8 @@
 </section>
 
 <div id="recPanel" class="hidden">
+  <div id="recLabel"><i></i><span id="recStatus">録音中</span></div>
   <div id="recTime">0:00</div>
-  <div id="recStatus">録音中… 話し終わったら停止</div>
   <button id="recStop" aria-label="停止"><span></span></button>
   <div class="spinner hidden" id="recSpin"></div>
   <button id="recCancel">キャンセル</button>
@@ -216,24 +236,36 @@ const store = {
 };
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayStr = () => ymd(new Date());
-function jpDate(s) { const [y, m, d] = s.split("-").map(Number); return `${y}年${m}月${d}日`; }
+function jpDate(s) { const [y, m, d] = s.split("-").map(Number); const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()]; return `${y}年${m}月${d}日（${w}）`; }
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const mmss = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
 
-// Notion の色
+// Notion の色（ライトモードのタグ色）
 const COLORS = {
-  default: ["#EDEDEC", "#37352F"], gray: ["#E3E2E0", "#32302C"], brown: ["#EEE0DA", "#442A1E"],
+  default: ["#E3E2E080", "#32302C"], gray: ["#E3E2E0", "#32302C"], brown: ["#EEE0DA", "#442A1E"],
   orange: ["#FADEC9", "#49290E"], yellow: ["#FDECC8", "#402C1B"], green: ["#DBEDDB", "#1C3829"],
   blue: ["#D3E5EF", "#183347"], purple: ["#E8DEEE", "#412454"], pink: ["#F5E0E9", "#4C2337"], red: ["#FFE2DD", "#5D1715"],
 };
 const colorStyle = (c) => { const [bg, fg] = COLORS[c] || COLORS.default; return `background:${bg};color:${fg}`; };
+
+// プロパティの種類ごとのアイコン（Notion風の細線）
+const ICONS = {
+  date: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3.5" y="5" width="17" height="15.5" rx="2"/><path d="M3.5 10h17M8 3v4M16 3v4"/></svg>',
+  multi_select: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M9 6h11M9 12h11M9 18h11"/><circle cx="4.5" cy="6" r="1" fill="currentColor"/><circle cx="4.5" cy="12" r="1" fill="currentColor"/><circle cx="4.5" cy="18" r="1" fill="currentColor"/></svg>',
+  select: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="8.5"/><path d="M8.5 11l3.5 3.5 3.5-3.5"/></svg>',
+  status: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="8.5" stroke-dasharray="3 2.4"/><circle cx="12" cy="12" r="3.5" fill="currentColor" stroke="none"/></svg>',
+  checkbox: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>',
+  url: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg>',
+};
+const PAGE_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><path d="M6 3h8l4 4v14H6z"/><path d="M14 3v4h4M9 12h6M9 16h6" stroke-linecap="round"/></svg>';
+const dbIconHtml = (d) => d?.icon ? esc(d.icon) : PAGE_ICON;
 
 let toastTimer;
 function toast(msg, bad = false, link) {
   document.querySelectorAll(".toast").forEach((t) => t.remove());
   const t = document.createElement("div");
   t.className = "toast" + (bad ? " bad" : "");
-  t.innerHTML = esc(msg) + (link ? ` <a href="${esc(link)}" target="_blank" rel="noopener">開く</a>` : "");
+  t.innerHTML = esc(msg) + (link ? `<a href="${esc(link)}" target="_blank" rel="noopener">開く</a>` : "");
   document.body.appendChild(t);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.remove(), bad ? 5000 : 3000);
@@ -264,9 +296,8 @@ const state = {
   dbId: "",
   schema: null,
   values: {},                                // プロパティの入力値 {名前: 値}
-  showUrl: false,
   images: [],                                // [{file, url}]
-  audios: [],                                // [{blob, url, mime, ext, sec, keep}]
+  audios: [],                                // [{blob, url, ext, sec, keep}]
   saving: false,
 };
 
@@ -291,7 +322,8 @@ async function openDb(id) {
   state.dbId = id;
   const cached = store.get("qn.schema." + id);
   const meta = state.databases.find((d) => d.id === id);
-  $("dbName").textContent = (meta?.icon ? meta.icon + " " : "") + (meta?.title || cached?.title || "…");
+  $("dbIcon").innerHTML = dbIconHtml(meta);
+  $("dbName").textContent = meta?.title || cached?.title || "…";
   if (cached) applySchema(cached);
   try {
     const fresh = await api({ action: "schema", databaseId: id });
@@ -313,46 +345,38 @@ function applySchema(schema, keepValues = false) {
       if (p.type === "checkbox") state.values[p.name] = false;
     }
     if (state.audios.length) autoCheckAudio();
-    $("text").value = store.get("qn.draft." + state.dbId) || "";
+    const d = store.get("qn.draft." + state.dbId);
+    $("title").value = d?.title || "";
+    $("body").value = typeof d === "string" ? d : d?.body || "";
     autoGrow();
   }
-  const tp = titleProp();
-  $("hint").textContent = tp ? `1行目 →「${tp.name}」、2行目以降 → 本文` : "";
+  $("title").placeholder = titleProp()?.name || "無題";
   renderProps();
   updateSaveBtn();
 }
 
 // ===== 描画 =====
 function renderProps() {
-  const props = state.schema?.properties || [];
+  const props = (state.schema?.properties || []).filter((p) => p.type !== "title");
+  const order = { date: 0, multi_select: 1, select: 2, status: 3, checkbox: 4, url: 5 };
+  props.sort((a, b) => order[a.type] - order[b.type]);
   let html = "";
-  const dates = props.filter((p) => p.type === "date");
-  const url = props.find((p) => p.type === "url");
-  dates.forEach((p, i) => {
-    const v = state.values[p.name] || "";
-    html += `<div class="prop-row">
-      <svg class="cal" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
-      <label class="date-field">${esc(p.name)}&nbsp;${v ? jpDate(v) : "<span style='color:var(--sub)'>未設定</span>"}
-        <input type="date" data-date="${esc(p.name)}" value="${esc(v)}"></label>
-      ${i === 0 && url ? `<button class="link-btn ${state.showUrl || state.values[url.name] ? "on" : ""}" id="urlToggle" aria-label="${esc(url.name)}">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></button>` : ""}
-    </div>`;
-  });
-  if (url && (state.showUrl || state.values[url.name] || !dates.length)) {
-    html += `<input class="url-input" type="url" inputmode="url" placeholder="${esc(url.name)}（https://…）" data-url="${esc(url.name)}" value="${esc(state.values[url.name] || "")}">`;
-  }
-  for (const p of props.filter((x) => ["multi_select", "select", "status"].includes(x.type))) {
-    if (!p.options.length) continue;
+  for (const p of props) {
     const v = state.values[p.name];
-    const on = (name) => (Array.isArray(v) ? v.includes(name) : v === name);
-    html += `${props.filter((x) => ["multi_select", "select", "status"].includes(x.type)).length > 1 ? `<div class="prop-label">${esc(p.name)}</div>` : `<div style="height:8px"></div>`}
-      <div class="chips">${p.options.map((o) =>
-        `<button class="chip ${on(o.name) ? "on" : ""}" style="${colorStyle(o.color)}" data-opt="${esc(p.name)}" data-val="${esc(o.name)}">${esc(o.name)}</button>`).join("")}</div>`;
-  }
-  const checks = props.filter((p) => p.type === "checkbox");
-  if (checks.length) {
-    html += `<div class="prop-label">チェック</div><div class="chips">${checks.map((p) =>
-      `<button class="chip check ${state.values[p.name] ? "on" : ""}" data-check="${esc(p.name)}">${state.values[p.name] ? "✓ " : ""}${esc(p.name)}</button>`).join("")}</div>`;
+    const name = `<div class="prop-name">${ICONS[p.type] || ""}<span>${esc(p.name)}</span></div>`;
+    if (p.type === "date") {
+      html += `<div class="prop">${name}<label class="prop-val tap">${v ? jpDate(v) : `<span class="empty">空</span>`}
+        <input type="date" data-date="${esc(p.name)}" value="${esc(v || "")}"></label></div>`;
+    } else if (p.type === "multi_select" || p.type === "select" || p.type === "status") {
+      if (!p.options.length) continue;
+      const on = (n) => (Array.isArray(v) ? v.includes(n) : v === n);
+      html += `<div class="prop">${name}<div class="prop-val"><div class="chips">${p.options.map((o) =>
+        `<button class="chip ${on(o.name) ? "on" : ""}" style="${colorStyle(o.color)}" data-opt="${esc(p.name)}" data-val="${esc(o.name)}">${esc(o.name)}</button>`).join("")}</div></div></div>`;
+    } else if (p.type === "checkbox") {
+      html += `<div class="prop">${name}<div class="prop-val tap" data-check="${esc(p.name)}"><div class="box ${v ? "on" : ""}">${v ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : ""}</div></div></div>`;
+    } else if (p.type === "url") {
+      html += `<div class="prop">${name}<div class="prop-val"><input type="url" inputmode="url" placeholder="空" data-url="${esc(p.name)}" value="${esc(v || "")}"></div></div>`;
+    }
   }
   $("props").innerHTML = html;
 }
@@ -364,32 +388,33 @@ function renderAttachments() {
   });
   state.audios.forEach((a, i) => {
     html += `<div class="audio-item">
-      <button class="play" data-play="${i}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg></button>
+      <button class="play" data-play="${i}"><svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg></button>
       <div class="meta">録音 ${i + 1}<small>${mmss(a.sec)} ・ 文字起こし済み</small></div>
       <label><input type="checkbox" class="toggle" data-keep="${i}" ${a.keep ? "checked" : ""}>音声も保存</label>
-      <button class="del" data-del-audio="${i}">✕</button>
+      <button class="del" data-del-audio="${i}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>`;
   });
   $("attachments").innerHTML = html;
 }
 
 function updateSaveBtn() {
-  const has = $("text").value.trim() || state.images.length || state.audios.some((a) => a.keep);
+  const has = $("title").value.trim() || $("body").value.trim() || state.images.length || state.audios.some((a) => a.keep);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
   $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
 }
 
 function autoGrow() {
-  const el = $("text");
+  const el = $("body");
   el.style.height = "auto";
-  el.style.height = Math.max(window.innerHeight * 0.34, el.scrollHeight + 2) + "px";
+  el.style.height = Math.max(window.innerHeight * 0.3, el.scrollHeight + 2) + "px";
 }
 
 let draftTimer;
 function saveDraft() {
   if (!state.dbId) return;
-  const v = $("text").value;
-  if (v.trim()) store.set("qn.draft." + state.dbId, v); else store.del("qn.draft." + state.dbId);
+  const title = $("title").value, body = $("body").value;
+  if (title.trim() || body.trim()) store.set("qn.draft." + state.dbId, { title, body });
+  else store.del("qn.draft." + state.dbId);
 }
 
 // ===== プロパティ操作 =====
@@ -408,12 +433,7 @@ $("props").addEventListener("click", (e) => {
     return;
   }
   const chk = e.target.closest("[data-check]");
-  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); return; }
-  if (e.target.closest("#urlToggle")) {
-    state.showUrl = !state.showUrl;
-    renderProps();
-    if (state.showUrl) document.querySelector("[data-url]")?.focus();
-  }
+  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); }
 });
 $("props").addEventListener("change", (e) => {
   if (e.target.dataset.date !== undefined) { state.values[e.target.dataset.date] = e.target.value; renderProps(); }
@@ -493,7 +513,8 @@ async function startRec() {
   mr.onstop = onRecStop;
   mr.start(1000);
   $("recTime").textContent = "0:00";
-  $("recStatus").textContent = "録音中… 話し終わったら停止";
+  $("recStatus").textContent = "録音中";
+  $("recLabel").querySelector("i").classList.remove("hidden");
   $("recStop").classList.remove("hidden"); $("recSpin").classList.add("hidden"); $("recCancel").classList.remove("hidden");
   $("recPanel").classList.remove("hidden");
   rec.timer = setInterval(() => {
@@ -520,8 +541,9 @@ async function onRecStop() {
   const ext = extOf(mime);
   const blob = new Blob(r.chunks, { type: mime.split(";")[0] });
   $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
+  $("recLabel").querySelector("i").classList.add("hidden");
   $("recStatus").textContent = "文字起こし中…";
-  const audio = { blob, url: URL.createObjectURL(blob), mime: mime.split(";")[0], ext, sec, keep: true };
+  const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: true };
   try {
     const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`);
     insertText(text);
@@ -541,7 +563,7 @@ async function onRecStop() {
 
 function insertText(t) {
   if (!t) return;
-  const el = $("text");
+  const el = $("body");
   const cur = el.value;
   el.value = cur ? cur.replace(/\s+$/, "") + "\n" + t : t;
   autoGrow(); saveDraft();
@@ -564,10 +586,13 @@ async function save() {
       // webm は Notion の音声ブロックが対応していないのでファイルとして添付
       attachments.push({ id, kind: a.ext === "webm" ? "file" : "audio" });
     }
+    // タイトル欄が空なら、本文の1行目がタイトルになる
+    const title = $("title").value.trim().replace(/\n/g, " ");
+    const body = $("body").value;
     const res = await api({
       action: "save",
       databaseId: state.dbId,
-      text: $("text").value,
+      text: title ? title + "\n" + body : body,
       props: state.values,
       attachments,
     });
@@ -581,11 +606,10 @@ async function save() {
 }
 
 function resetForm() {
-  $("text").value = "";
   store.del("qn.draft." + state.dbId);
   state.images.forEach((im) => URL.revokeObjectURL(im.url));
   state.audios.forEach((a) => URL.revokeObjectURL(a.url));
-  state.images = []; state.audios = []; state.showUrl = false;
+  state.images = []; state.audios = [];
   const keepDates = {};
   for (const p of state.schema.properties) if (p.type === "date") keepDates[p.name] = state.values[p.name];
   applySchema(state.schema);
@@ -594,16 +618,18 @@ function resetForm() {
 }
 
 // ===== シート =====
-function openSheet(html) { $("sheetBody").innerHTML = html; $("sheet").classList.remove("hidden"); }
+function openSheet(html) { $("sheetBody").innerHTML = `<div class="grab"></div>` + html; $("sheet").classList.remove("hidden"); }
 function closeSheet() { $("sheet").classList.add("hidden"); }
 $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet" || e.target.closest(".close")) closeSheet(); });
 
 // DB 切り替え
 $("dbBtn").onclick = () => {
   const list = visibleDbs();
-  openSheet(`<h2>保存先<button class="close">閉じる</button></h2>
-    ${list.length ? list.map((d) => `<button class="list-item ${d.id === state.dbId ? "current" : ""}" style="width:100%;text-align:left" data-pick="${d.id}">
-      <span class="t">${d.icon ? esc(d.icon) + " " : ""}${esc(d.title)}</span>${d.id === state.defaultId ? `<span class="s">デフォルト</span>` : ""}</button>`).join("")
+  openSheet(`<h2>保存先</h2>
+    ${list.length ? list.map((d) => `<button class="item" data-pick="${d.id}">
+      <span class="ic">${dbIconHtml(d)}</span><span class="t">${esc(d.title)}</span>
+      ${d.id === state.defaultId ? `<span class="s">デフォルト</span>` : ""}
+      ${d.id === state.dbId ? `<svg class="check" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>` : ""}</button>`).join("")
       : `<p class="muted">表示できるデータベースがありません。設定から追加してください。</p>`}`);
 };
 $("sheetBody").addEventListener("click", (e) => {
@@ -611,8 +637,9 @@ $("sheetBody").addEventListener("click", (e) => {
   if (pick) { closeSheet(); openDb(pick.dataset.pick); return; }
   const star = e.target.closest("[data-star]");
   if (star) { state.defaultId = star.dataset.star; store.set("qn.default", state.defaultId); state.hidden = state.hidden.filter((x) => x !== state.defaultId); store.set("qn.hidden", state.hidden); renderSettings(); return; }
-  if (e.target.closest("#reloadDbs")) {
-    e.target.closest("#reloadDbs").textContent = "読み込み中…";
+  const rl = e.target.closest("#reloadDbs");
+  if (rl) {
+    rl.querySelector(".t").textContent = "読み込み中…";
     refreshDatabases().then(renderSettings).catch((err) => toast(err.message, true));
     return;
   }
@@ -628,34 +655,39 @@ $("sheetBody").addEventListener("change", (e) => {
 // 設定
 $("settingsBtn").onclick = renderSettings;
 function renderSettings() {
-  openSheet(`<h2>設定<button class="close">閉じる</button></h2>
-    <p class="muted">☆ = 起動時に開くデータベース　／　チェック = 切り替えに表示</p>
-    ${state.databases.map((d) => `<div class="list-item">
+  openSheet(`<h2>データベース<button class="close">完了</button></h2>
+    <p class="muted">★ 起動時に開く　／　チェック 切り替えに表示</p>
+    ${state.databases.map((d) => `<div class="item">
       <button class="star ${d.id === state.defaultId ? "on" : ""}" data-star="${d.id}">${d.id === state.defaultId ? "★" : "☆"}</button>
-      <span class="t">${d.icon ? esc(d.icon) + " " : ""}${esc(d.title)}</span>
+      <span class="ic">${dbIconHtml(d)}</span><span class="t">${esc(d.title)}</span>
       <input type="checkbox" class="toggle" data-show="${d.id}" ${state.hidden.includes(d.id) ? "" : "checked"}>
     </div>`).join("")}
-    <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」から日記アプリと同じインテグレーションを追加すると出てきます。</p>
-    <button class="sub-btn" id="reloadDbs">一覧を更新</button>
-    <button class="sub-btn" id="logoutBtn" style="color:var(--rec)">ログアウト</button>`);
+    <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」からインテグレーションを追加すると表示されます。</p>
+    <div class="sep"></div>
+    <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
+    <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>`);
 }
 
 // 最近の保存
 $("historyBtn").onclick = async () => {
-  openSheet(`<h2>最近の保存<button class="close">閉じる</button></h2><div class="spinner" style="margin:20px auto"></div>`);
+  openSheet(`<h2>最近の保存</h2><div class="spinner" style="margin:24px auto"></div>`);
   try {
     const { pages } = await api({ action: "recent", databaseId: state.dbId });
     const fmt = (s) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
     openSheet(`<h2>最近の保存<button class="close">閉じる</button></h2>
-      ${pages.length ? pages.map((p) => `<a class="list-item link" href="${esc(p.url)}" target="_blank" rel="noopener"><span class="t">${esc(p.title)}</span><span class="s">${fmt(p.created)}</span></a>`).join("") : `<p class="muted">まだありません</p>`}`);
+      ${pages.length ? pages.map((p) => `<a class="item" href="${esc(p.url)}" target="_blank" rel="noopener"><span class="ic">${PAGE_ICON}</span><span class="t">${esc(p.title)}</span><span class="s">${fmt(p.created)}</span></a>`).join("") : `<p class="muted">まだありません</p>`}`);
   } catch (e) { closeSheet(); toast(e.message, true); }
 };
 
 // ===== テキスト =====
-$("text").addEventListener("input", () => {
-  autoGrow(); updateSaveBtn();
-  clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
-});
+for (const id of ["title", "body"]) {
+  $(id).addEventListener("input", () => {
+    if (id === "body") autoGrow();
+    updateSaveBtn();
+    clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
+  });
+}
+$("title").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("body").focus(); } });
 
 // ===== 画面切り替え =====
 function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
