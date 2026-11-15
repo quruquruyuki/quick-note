@@ -72,10 +72,9 @@
   /* ── 入力（見た目は1つの欄。1行目＝タイトル 20px、2行目から＝本文 18px） ── */
   main { padding: 6px 20px 16px; max-width: 720px; margin: 0 auto; }
   #title, #body { width: 100%; border: none; outline: none; background: transparent; color: var(--ink); display: block; }
-  #title { font-size: var(--fs-input); line-height: 1.5; padding: 6px 0 2px; height: calc(var(--fs-input) * 1.5 + 8px); }
-  #body { font-size: calc(var(--fs-input) - 2px); line-height: 1.45; resize: none; padding: 0 0 6px; min-height: 18vh; color: var(--ink2); }
+  #title { font-size: var(--fs-input); line-height: 1.4; padding: 6px 0 2px; height: calc(var(--fs-input) * 1.4 + 8px); }
+  #body { font-size: calc(var(--fs-input) - 2px); line-height: 1.4; resize: none; padding: 0 0 6px; min-height: 18vh; color: var(--ink2); }
   #title::placeholder, #body::placeholder { color: #C9C7C2; }
-  .hint { font-size: var(--fs-sub); color: var(--faint); margin: 0 0 6px; }
 
   /* プロパティ（大きめのボタンで、歩きながらでも押しやすく） */
   #props { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; font-size: var(--fs-sub); }
@@ -191,7 +190,6 @@
   <main>
     <input id="title" placeholder="ここに書く" autocomplete="off" enterkeyhint="next">
     <textarea id="body"></textarea>
-    <div class="hint" id="hint"></div>
     <div id="attachments"></div>
     <div id="props"></div>
   </main>
@@ -226,6 +224,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
+const APP_VERSION = "2026.11.15-4";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -367,8 +366,7 @@ function applySchema(schema, keepValues = false) {
     setText(typeof d === "string" ? d : d ? [d.title, d.body].filter(Boolean).join("\n") : "");
     autoGrow();
   }
-  const tp = titleProp();
-  $("hint").textContent = tp ? `1行目 →「${tp.name}」　2行目から → 本文` : "";
+
   renderProps();
   updateSaveBtn();
 }
@@ -693,7 +691,8 @@ function renderSettings() {
     <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」からインテグレーションを追加すると表示されます。</p>
     <div class="sep"></div>
     <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
-    <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>`);
+    <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>
+    <p class="muted" style="text-align:center">Notion Quick ${APP_VERSION}</p>`);
 }
 
 // 最近の保存
@@ -758,6 +757,18 @@ function checkKeyboard() {
   document.body.classList.toggle("kb", !!vv && vv.height < window.innerHeight - 120);
 }
 if (window.visualViewport) visualViewport.addEventListener("resize", checkKeyboard);
+
+// ===== 新しい版が出ていたら自動で読み込み直す =====
+(async () => {
+  try {
+    const res = await fetch(location.pathname + "?check=" + Date.now(), { cache: "no-store" });
+    const m = (await res.text()).match(/APP_VERSION = "([^"]+)"/);
+    if (m && m[1] !== APP_VERSION && !sessionStorage.getItem("qn.reloaded." + m[1])) {
+      sessionStorage.setItem("qn.reloaded." + m[1], "1");
+      location.replace(location.pathname + "?v=" + encodeURIComponent(m[1]));
+    }
+  } catch {}
+})();
 
 // ===== 画面切り替え =====
 function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
