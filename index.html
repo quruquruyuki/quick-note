@@ -109,7 +109,9 @@
   .audio-item .del { color: var(--faint); padding: 10px; }
 
   /* 下のバー */
-  .kb #bar { padding-bottom: 10px; }   /* キーボード表示中はホームバー分の余白をなくす */
+  /* 入力中（キーボード表示中）は、バーを画面に固定してキーボードのすぐ上に出す */
+  .kb #bar { position: fixed; left: 0; right: 0; bottom: 0; padding-bottom: 10px; }
+  .kb main { padding-bottom: 92px; }
   #bar {
     position: sticky; bottom: 0; z-index: 6; flex: none; background: #fff;
     border-top: 1px solid var(--line); padding: 10px 16px calc(var(--safe-b) + 10px);
@@ -224,7 +226,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.15-4";     // 更新のたびに変える
+const APP_VERSION = "2026.11.15-5";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -752,11 +754,10 @@ $("title").addEventListener("paste", (e) => {
 });
 
 // ===== キーボード表示中はバー下の余白（ホームバー分）を消す =====
-function checkKeyboard() {
-  const vv = window.visualViewport;
-  document.body.classList.toggle("kb", !!vv && vv.height < window.innerHeight - 120);
-}
-if (window.visualViewport) visualViewport.addEventListener("resize", checkKeyboard);
+// 書く欄・URL欄にカーソルがある間＝キーボード表示中
+const isTyping = (el) => el && el.matches("#title, #body, input[type=url]");
+document.addEventListener("focusin", (e) => document.body.classList.toggle("kb", isTyping(e.target)));
+document.addEventListener("focusout", () => setTimeout(() => document.body.classList.toggle("kb", isTyping(document.activeElement)), 0));
 
 // ===== 新しい版が出ていたら自動で読み込み直す =====
 (async () => {
