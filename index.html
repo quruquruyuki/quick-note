@@ -1,0 +1,690 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="クイックノート">
+<meta name="theme-color" content="#FFFFFF">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" type="image/png" href="icon-192.png">
+<link rel="manifest" href="manifest.json">
+<title>クイックノート</title>
+<style>
+  :root {
+    --bg: #FFFFFF;
+    --ink: #37352F;
+    --sub: #9B9A97;
+    --line: #EDECE9;
+    --field: #F7F7F5;
+    --accent: #2F80ED;
+    --accent-soft: #E8F1FD;
+    --rec: #E5484D;
+    --radius: 12px;
+    --safe-t: env(safe-area-inset-top, 0px);
+    --safe-b: env(safe-area-inset-bottom, 0px);
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body { margin: 0; background: var(--bg); color: var(--ink); }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    font-size: 17px; line-height: 1.6;
+  }
+  button { font: inherit; color: inherit; background: none; border: none; cursor: pointer; padding: 0; }
+  input, textarea { font: inherit; color: inherit; }
+  .hidden { display: none !important; }
+  svg { display: block; }
+
+  /* ── ログイン ── */
+  #login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; background: var(--field); }
+  .login-box { width: 100%; max-width: 360px; background: #fff; border-radius: 16px; padding: 28px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .login-box h1 { font-size: 22px; margin: 0 0 4px; }
+  .login-box p { margin: 0 0 20px; color: var(--sub); font-size: 14px; }
+  .login-box input { width: 100%; font-size: 16px; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--field); margin-bottom: 10px; }
+  .primary { width: 100%; background: var(--accent); color: #fff; border-radius: 10px; padding: 12px; font-weight: 600; }
+  .primary:disabled { opacity: .5; }
+  .err { color: var(--rec); font-size: 14px; margin-top: 10px; min-height: 1em; }
+
+  /* ── ヘッダー ── */
+  header {
+    position: sticky; top: 0; z-index: 5; background: var(--bg);
+    padding: calc(var(--safe-t) + 10px) 16px 8px; display: flex; align-items: center; gap: 8px;
+  }
+  #dbBtn { display: flex; align-items: center; gap: 6px; color: var(--accent); font-size: 20px; font-weight: 600; min-width: 0; }
+  #dbBtn .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spacer { flex: 1; }
+  .icon-btn { width: 40px; height: 40px; display: flex; align-items: center; justify-content: center; color: var(--accent); border-radius: 10px; }
+  .icon-btn:active { background: var(--accent-soft); }
+
+  /* ── 入力 ── */
+  main { padding: 0 16px calc(var(--safe-b) + 110px); }
+  #text {
+    width: 100%; border: none; outline: none; resize: none; background: transparent;
+    min-height: 34vh; padding: 8px 0; font-size: 18px; line-height: 1.7;
+  }
+  #text::placeholder { color: #C4C3C0; }
+  .hint { font-size: 12px; color: var(--sub); margin: -4px 0 10px; }
+
+  /* 添付 */
+  #attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 14px; }
+  #attachments:empty { display: none; }
+  .thumb { position: relative; width: 76px; height: 76px; border-radius: 10px; overflow: hidden; background: var(--field); }
+  .thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .x { position: absolute; top: 4px; right: 4px; width: 22px; height: 22px; border-radius: 50%; background: rgba(0,0,0,.55); color: #fff; font-size: 13px; line-height: 22px; text-align: center; }
+  .audio-item { display: flex; align-items: center; gap: 10px; background: var(--field); border-radius: 10px; padding: 8px 10px; width: 100%; }
+  .audio-item .play { width: 32px; height: 32px; border-radius: 50%; background: #fff; display: flex; align-items: center; justify-content: center; color: var(--accent); flex: none; }
+  .audio-item .meta { flex: 1; font-size: 14px; min-width: 0; }
+  .audio-item .meta small { display: block; color: var(--sub); font-size: 12px; }
+  .audio-item label { font-size: 13px; color: var(--sub); display: flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .audio-item .del { color: var(--sub); font-size: 20px; padding: 0 4px; }
+
+  /* プロパティ */
+  .prop-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; font-size: 16px; }
+  .prop-row .cal { color: var(--accent); }
+  .date-field { position: relative; display: inline-flex; align-items: center; }
+  .date-field input { position: absolute; inset: 0; opacity: 0; width: 100%; }
+  .link-btn { color: var(--sub); margin-left: 6px; }
+  .link-btn.on { color: var(--accent); }
+  .url-input { width: 100%; border: 1px solid var(--line); background: var(--field); border-radius: 10px; padding: 10px 12px; font-size: 15px; margin: 4px 0; }
+  .prop-label { font-size: 12px; color: var(--sub); margin: 10px 0 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 5px 12px; border-radius: 8px; font-size: 15px; border: 2px solid transparent; }
+  .chip.on { border-color: var(--ink); font-weight: 600; }
+  .chip.check { background: var(--field); }
+  .chip.check.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* 下のバー */
+  #bar {
+    position: fixed; left: 0; right: 0; bottom: 0; z-index: 6; background: rgba(255,255,255,.96);
+    border-top: 1px solid var(--line); padding: 10px 16px calc(var(--safe-b) + 10px);
+    display: flex; align-items: center; gap: 12px; backdrop-filter: blur(8px);
+  }
+  .tool { width: 46px; height: 46px; border-radius: 50%; background: var(--field); display: flex; align-items: center; justify-content: center; color: var(--ink); flex: none; }
+  #recBtn { background: #FDECEC; color: var(--rec); }
+  #saveBtn { flex: 1; height: 46px; border-radius: 23px; background: var(--accent); color: #fff; font-weight: 600; font-size: 17px; }
+  #saveBtn:disabled { background: #C9D9F2; }
+
+  /* 録音中 */
+  #recPanel { position: fixed; inset: 0; z-index: 20; background: rgba(255,255,255,.97); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 22px; }
+  #recTime { font-size: 44px; font-weight: 300; font-variant-numeric: tabular-nums; }
+  #recStatus { color: var(--sub); font-size: 15px; }
+  #recStop { width: 84px; height: 84px; border-radius: 50%; background: var(--rec); display: flex; align-items: center; justify-content: center; animation: pulse 1.4s infinite; }
+  #recStop span { width: 28px; height: 28px; border-radius: 6px; background: #fff; }
+  #recCancel { color: var(--sub); font-size: 15px; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(229,72,77,.45); } 70% { box-shadow: 0 0 0 22px rgba(229,72,77,0); } 100% { box-shadow: 0 0 0 0 rgba(229,72,77,0); } }
+  .spinner { width: 34px; height: 34px; border: 3px solid var(--line); border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* シート */
+  .sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgba(0,0,0,.3); display: flex; align-items: flex-end; }
+  .sheet { width: 100%; max-height: 82vh; overflow-y: auto; background: #fff; border-radius: 16px 16px 0 0; padding: 14px 16px calc(var(--safe-b) + 18px); }
+  .sheet h2 { font-size: 17px; margin: 4px 0 12px; display: flex; align-items: center; }
+  .sheet h2 .close { margin-left: auto; color: var(--sub); font-size: 15px; font-weight: 400; }
+  .list-item { display: flex; align-items: center; gap: 10px; padding: 12px 4px; border-bottom: 1px solid var(--line); }
+  .list-item:last-child { border-bottom: none; }
+  .list-item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .list-item .s { color: var(--sub); font-size: 13px; white-space: nowrap; }
+  .list-item.current .t { color: var(--accent); font-weight: 600; }
+  .star { font-size: 20px; color: #D3D1CB; }
+  .star.on { color: #F5B400; }
+  .toggle { width: 22px; height: 22px; accent-color: var(--accent); }
+  .muted { color: var(--sub); font-size: 13px; margin: 6px 0 12px; }
+  .link { color: var(--accent); text-decoration: none; }
+  .sub-btn { width: 100%; padding: 12px; border-radius: 10px; background: var(--field); margin-top: 10px; }
+
+  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 84px); transform: translateX(-50%); z-index: 40; background: rgba(40,40,40,.92); color: #fff; padding: 10px 16px; border-radius: 12px; font-size: 14px; max-width: 90vw; text-align: center; }
+  .toast.bad { background: rgba(200,50,50,.95); }
+  .toast a { color: #9CD0FF; margin-left: 8px; }
+</style>
+</head>
+<body>
+
+<section id="login" class="hidden">
+  <form class="login-box" id="loginForm">
+    <h1>クイックノート</h1>
+    <p>日記アプリと同じアカウントでログイン</p>
+    <input id="email" type="email" placeholder="メールアドレス" autocomplete="username" required>
+    <input id="password" type="password" placeholder="パスワード" autocomplete="current-password" required>
+    <button class="primary" type="submit" id="loginBtn">ログイン</button>
+    <div class="err" id="loginErr"></div>
+  </form>
+</section>
+
+<section id="app" class="hidden">
+  <header>
+    <button id="dbBtn"><span class="name" id="dbName">読み込み中…</span>
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
+    </button>
+    <div class="spacer"></div>
+    <button class="icon-btn" id="historyBtn" aria-label="最近の保存">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><rect x="3" y="4" width="18" height="5" rx="1"/><path d="M5 9v10a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9"/><path d="M10 13h4" stroke-linecap="round"/></svg>
+    </button>
+    <button class="icon-btn" id="settingsBtn" aria-label="設定">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+    </button>
+  </header>
+
+  <main>
+    <textarea id="text" placeholder="ここに書く"></textarea>
+    <div class="hint" id="hint"></div>
+    <div id="attachments"></div>
+    <div id="props"></div>
+  </main>
+
+  <div id="bar">
+    <button class="tool" id="photoBtn" aria-label="写真">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linejoin="round"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13.5" r="3.5"/></svg>
+    </button>
+    <button class="tool" id="recBtn" aria-label="録音">
+      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0M12 18v3"/></svg>
+    </button>
+    <button id="saveBtn" disabled>保存</button>
+  </div>
+  <input type="file" id="photoInput" accept="image/*" multiple class="hidden">
+</section>
+
+<div id="recPanel" class="hidden">
+  <div id="recTime">0:00</div>
+  <div id="recStatus">録音中… 話し終わったら停止</div>
+  <button id="recStop" aria-label="停止"><span></span></button>
+  <div class="spinner hidden" id="recSpin"></div>
+  <button id="recCancel">キャンセル</button>
+</div>
+
+<div id="sheet" class="sheet-bg hidden"><div class="sheet" id="sheetBody"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+// ===== 設定 =====
+const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
+const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
+const FN = "quick-note";
+const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
+const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
+const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
+
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const $ = (id) => document.getElementById(id);
+
+// ===== 小物 =====
+const store = {
+  get(k) { try { return JSON.parse(localStorage.getItem(k)); } catch { return null; } },
+  set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
+  del(k) { try { localStorage.removeItem(k); } catch {} },
+};
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const todayStr = () => ymd(new Date());
+function jpDate(s) { const [y, m, d] = s.split("-").map(Number); return `${y}年${m}月${d}日`; }
+function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
+const mmss = (sec) => `${Math.floor(sec / 60)}:${String(Math.floor(sec % 60)).padStart(2, "0")}`;
+
+// Notion の色
+const COLORS = {
+  default: ["#EDEDEC", "#37352F"], gray: ["#E3E2E0", "#32302C"], brown: ["#EEE0DA", "#442A1E"],
+  orange: ["#FADEC9", "#49290E"], yellow: ["#FDECC8", "#402C1B"], green: ["#DBEDDB", "#1C3829"],
+  blue: ["#D3E5EF", "#183347"], purple: ["#E8DEEE", "#412454"], pink: ["#F5E0E9", "#4C2337"], red: ["#FFE2DD", "#5D1715"],
+};
+const colorStyle = (c) => { const [bg, fg] = COLORS[c] || COLORS.default; return `background:${bg};color:${fg}`; };
+
+let toastTimer;
+function toast(msg, bad = false, link) {
+  document.querySelectorAll(".toast").forEach((t) => t.remove());
+  const t = document.createElement("div");
+  t.className = "toast" + (bad ? " bad" : "");
+  t.innerHTML = esc(msg) + (link ? ` <a href="${esc(link)}" target="_blank" rel="noopener">開く</a>` : "");
+  document.body.appendChild(t);
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.remove(), bad ? 5000 : 3000);
+}
+
+async function api(body) {
+  const { data, error } = await sb.functions.invoke(FN, { body });
+  if (error) {
+    let msg = error.message;
+    try { const j = await error.context.json(); if (j?.error) msg = j.error; } catch {}
+    if (error.context?.status === 401) { await sb.auth.signOut(); showLogin(); }
+    throw new Error(msg);
+  }
+  return data;
+}
+function apiFile(action, file, name) {
+  const fd = new FormData();
+  fd.append("action", action);
+  fd.append("file", file, name || file.name || "file");
+  return api(fd);
+}
+
+// ===== 状態 =====
+const state = {
+  databases: store.get("qn.dbs") || [],      // [{id,title,icon}]
+  hidden: store.get("qn.hidden") || [],      // 切り替えに出さないDB
+  defaultId: store.get("qn.default") || "",
+  dbId: "",
+  schema: null,
+  values: {},                                // プロパティの入力値 {名前: 値}
+  showUrl: false,
+  images: [],                                // [{file, url}]
+  audios: [],                                // [{blob, url, mime, ext, sec, keep}]
+  saving: false,
+};
+
+const visibleDbs = () => state.databases.filter((d) => !state.hidden.includes(d.id));
+const titleProp = () => state.schema?.properties.find((p) => p.type === "title");
+
+// ===== DB の読み込み =====
+async function refreshDatabases() {
+  const { databases } = await api({ action: "databases" });
+  state.databases = databases;
+  store.set("qn.dbs", databases);
+  if (!state.defaultId || !databases.some((d) => d.id === state.defaultId)) {
+    const pick = databases.find((d) => d.title === DEFAULT_DB_TITLE) || databases[0];
+    state.defaultId = pick ? pick.id : "";
+    store.set("qn.default", state.defaultId);
+  }
+}
+
+async function openDb(id) {
+  if (!id) return;
+  saveDraft();
+  state.dbId = id;
+  const cached = store.get("qn.schema." + id);
+  const meta = state.databases.find((d) => d.id === id);
+  $("dbName").textContent = (meta?.icon ? meta.icon + " " : "") + (meta?.title || cached?.title || "…");
+  if (cached) applySchema(cached);
+  try {
+    const fresh = await api({ action: "schema", databaseId: id });
+    store.set("qn.schema." + id, fresh);
+    if (state.dbId === id) applySchema(fresh, !!cached);
+  } catch (e) {
+    if (!cached) toast("データベースを読めません: " + e.message, true);
+  }
+}
+
+function applySchema(schema, keepValues = false) {
+  state.schema = schema;
+  if (!keepValues) {
+    state.values = {};
+    let firstDate = true;
+    for (const p of schema.properties) {
+      if (p.type === "date" && firstDate) { state.values[p.name] = todayStr(); firstDate = false; }
+      if (p.type === "multi_select") state.values[p.name] = [];
+      if (p.type === "checkbox") state.values[p.name] = false;
+    }
+    if (state.audios.length) autoCheckAudio();
+    $("text").value = store.get("qn.draft." + state.dbId) || "";
+    autoGrow();
+  }
+  const tp = titleProp();
+  $("hint").textContent = tp ? `1行目 →「${tp.name}」、2行目以降 → 本文` : "";
+  renderProps();
+  updateSaveBtn();
+}
+
+// ===== 描画 =====
+function renderProps() {
+  const props = state.schema?.properties || [];
+  let html = "";
+  const dates = props.filter((p) => p.type === "date");
+  const url = props.find((p) => p.type === "url");
+  dates.forEach((p, i) => {
+    const v = state.values[p.name] || "";
+    html += `<div class="prop-row">
+      <svg class="cal" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+      <label class="date-field">${esc(p.name)}&nbsp;${v ? jpDate(v) : "<span style='color:var(--sub)'>未設定</span>"}
+        <input type="date" data-date="${esc(p.name)}" value="${esc(v)}"></label>
+      ${i === 0 && url ? `<button class="link-btn ${state.showUrl || state.values[url.name] ? "on" : ""}" id="urlToggle" aria-label="${esc(url.name)}">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"><path d="M10 14a4 4 0 0 0 5.66 0l3-3a4 4 0 0 0-5.66-5.66l-1 1"/><path d="M14 10a4 4 0 0 0-5.66 0l-3 3a4 4 0 0 0 5.66 5.66l1-1"/></svg></button>` : ""}
+    </div>`;
+  });
+  if (url && (state.showUrl || state.values[url.name] || !dates.length)) {
+    html += `<input class="url-input" type="url" inputmode="url" placeholder="${esc(url.name)}（https://…）" data-url="${esc(url.name)}" value="${esc(state.values[url.name] || "")}">`;
+  }
+  for (const p of props.filter((x) => ["multi_select", "select", "status"].includes(x.type))) {
+    if (!p.options.length) continue;
+    const v = state.values[p.name];
+    const on = (name) => (Array.isArray(v) ? v.includes(name) : v === name);
+    html += `${props.filter((x) => ["multi_select", "select", "status"].includes(x.type)).length > 1 ? `<div class="prop-label">${esc(p.name)}</div>` : `<div style="height:8px"></div>`}
+      <div class="chips">${p.options.map((o) =>
+        `<button class="chip ${on(o.name) ? "on" : ""}" style="${colorStyle(o.color)}" data-opt="${esc(p.name)}" data-val="${esc(o.name)}">${esc(o.name)}</button>`).join("")}</div>`;
+  }
+  const checks = props.filter((p) => p.type === "checkbox");
+  if (checks.length) {
+    html += `<div class="prop-label">チェック</div><div class="chips">${checks.map((p) =>
+      `<button class="chip check ${state.values[p.name] ? "on" : ""}" data-check="${esc(p.name)}">${state.values[p.name] ? "✓ " : ""}${esc(p.name)}</button>`).join("")}</div>`;
+  }
+  $("props").innerHTML = html;
+}
+
+function renderAttachments() {
+  let html = "";
+  state.images.forEach((im, i) => {
+    html += `<div class="thumb"><img src="${im.url}" alt=""><button class="x" data-del-img="${i}">✕</button></div>`;
+  });
+  state.audios.forEach((a, i) => {
+    html += `<div class="audio-item">
+      <button class="play" data-play="${i}"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4l13 8-13 8z"/></svg></button>
+      <div class="meta">録音 ${i + 1}<small>${mmss(a.sec)} ・ 文字起こし済み</small></div>
+      <label><input type="checkbox" class="toggle" data-keep="${i}" ${a.keep ? "checked" : ""}>音声も保存</label>
+      <button class="del" data-del-audio="${i}">✕</button>
+    </div>`;
+  });
+  $("attachments").innerHTML = html;
+}
+
+function updateSaveBtn() {
+  const has = $("text").value.trim() || state.images.length || state.audios.some((a) => a.keep);
+  $("saveBtn").disabled = state.saving || !state.schema || !has;
+  $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
+}
+
+function autoGrow() {
+  const el = $("text");
+  el.style.height = "auto";
+  el.style.height = Math.max(window.innerHeight * 0.34, el.scrollHeight + 2) + "px";
+}
+
+let draftTimer;
+function saveDraft() {
+  if (!state.dbId) return;
+  const v = $("text").value;
+  if (v.trim()) store.set("qn.draft." + state.dbId, v); else store.del("qn.draft." + state.dbId);
+}
+
+// ===== プロパティ操作 =====
+$("props").addEventListener("click", (e) => {
+  const chip = e.target.closest("[data-opt]");
+  if (chip) {
+    const p = state.schema.properties.find((x) => x.name === chip.dataset.opt);
+    const val = chip.dataset.val;
+    if (p.type === "multi_select") {
+      const arr = state.values[p.name] || [];
+      state.values[p.name] = arr.includes(val) ? arr.filter((x) => x !== val) : [...arr, val];
+    } else {
+      state.values[p.name] = state.values[p.name] === val ? "" : val;
+    }
+    renderProps();
+    return;
+  }
+  const chk = e.target.closest("[data-check]");
+  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); return; }
+  if (e.target.closest("#urlToggle")) {
+    state.showUrl = !state.showUrl;
+    renderProps();
+    if (state.showUrl) document.querySelector("[data-url]")?.focus();
+  }
+});
+$("props").addEventListener("change", (e) => {
+  if (e.target.dataset.date !== undefined) { state.values[e.target.dataset.date] = e.target.value; renderProps(); }
+});
+$("props").addEventListener("input", (e) => {
+  if (e.target.dataset.url !== undefined) state.values[e.target.dataset.url] = e.target.value;
+});
+
+function autoCheckAudio() {
+  const p = state.schema?.properties.find((x) => x.type === "checkbox" && x.name === AUTO_CHECK_ON_AUDIO);
+  if (p) state.values[p.name] = true;
+}
+
+// ===== 写真 =====
+$("photoBtn").onclick = () => $("photoInput").click();
+$("photoInput").addEventListener("change", async (e) => {
+  for (const f of [...e.target.files]) {
+    try {
+      const file = await compressImage(f);
+      state.images.push({ file, url: URL.createObjectURL(file) });
+    } catch { toast("この画像は読み込めませんでした", true); }
+  }
+  e.target.value = "";
+  renderAttachments(); updateSaveBtn();
+});
+
+// 長辺2048px・JPEGに縮小（Notion無料プランの5MB制限に収めるため）
+function compressImage(file) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const src = URL.createObjectURL(file);
+    img.onload = () => {
+      const MAX = 2048;
+      const r = Math.min(1, MAX / Math.max(img.width, img.height));
+      const c = document.createElement("canvas");
+      c.width = Math.round(img.width * r); c.height = Math.round(img.height * r);
+      c.getContext("2d").drawImage(img, 0, 0, c.width, c.height);
+      URL.revokeObjectURL(src);
+      c.toBlob((b) => b ? resolve(new File([b], `photo-${Date.now()}.jpg`, { type: "image/jpeg" })) : reject(), "image/jpeg", 0.85);
+    };
+    img.onerror = () => { URL.revokeObjectURL(src); reject(); };
+    img.src = src;
+  });
+}
+
+$("attachments").addEventListener("click", (e) => {
+  const di = e.target.closest("[data-del-img]");
+  if (di) { const [im] = state.images.splice(+di.dataset.delImg, 1); URL.revokeObjectURL(im.url); renderAttachments(); updateSaveBtn(); return; }
+  const da = e.target.closest("[data-del-audio]");
+  if (da) { const [a] = state.audios.splice(+da.dataset.delAudio, 1); URL.revokeObjectURL(a.url); renderAttachments(); updateSaveBtn(); return; }
+  const pl = e.target.closest("[data-play]");
+  if (pl) { new Audio(state.audios[+pl.dataset.play].url).play().catch(() => {}); }
+});
+$("attachments").addEventListener("change", (e) => {
+  if (e.target.dataset.keep !== undefined) { state.audios[+e.target.dataset.keep].keep = e.target.checked; updateSaveBtn(); }
+});
+
+// ===== 録音 → 文字起こし =====
+let rec = null;
+function pickMime() {
+  const list = ["audio/mp4", "audio/webm;codecs=opus", "audio/webm", "audio/ogg;codecs=opus"];
+  return list.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+}
+const extOf = (mime) => mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : mime.includes("webm") ? "webm" : "m4a";
+
+$("recBtn").onclick = startRec;
+async function startRec() {
+  if (!window.MediaRecorder) { toast("このブラウザは録音に対応していません", true); return; }
+  let stream;
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
+  catch { toast("マイクの使用が許可されていません（設定 → Safari → マイク）", true); return; }
+  const mime = pickMime();
+  const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
+  const chunks = [];
+  rec = { mr, stream, chunks, start: Date.now(), cancelled: false, timer: null };
+  mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
+  mr.onstop = onRecStop;
+  mr.start(1000);
+  $("recTime").textContent = "0:00";
+  $("recStatus").textContent = "録音中… 話し終わったら停止";
+  $("recStop").classList.remove("hidden"); $("recSpin").classList.add("hidden"); $("recCancel").classList.remove("hidden");
+  $("recPanel").classList.remove("hidden");
+  rec.timer = setInterval(() => {
+    const sec = (Date.now() - rec.start) / 1000;
+    $("recTime").textContent = mmss(sec);
+    if (sec >= MAX_REC_SEC) stopRec();
+  }, 250);
+}
+function stopRec(cancel = false) {
+  if (!rec || rec.mr.state === "inactive") return;
+  rec.cancelled = cancel;
+  clearInterval(rec.timer);
+  rec.mr.stop();
+  rec.stream.getTracks().forEach((t) => t.stop());
+}
+$("recStop").onclick = () => stopRec(false);
+$("recCancel").onclick = () => stopRec(true);
+
+async function onRecStop() {
+  const r = rec;
+  const sec = (Date.now() - r.start) / 1000;
+  if (r.cancelled || !r.chunks.length) { $("recPanel").classList.add("hidden"); rec = null; return; }
+  const mime = (r.mr.mimeType || r.chunks[0].type || "audio/mp4");
+  const ext = extOf(mime);
+  const blob = new Blob(r.chunks, { type: mime.split(";")[0] });
+  $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
+  $("recStatus").textContent = "文字起こし中…";
+  const audio = { blob, url: URL.createObjectURL(blob), mime: mime.split(";")[0], ext, sec, keep: true };
+  try {
+    const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`);
+    insertText(text);
+    state.audios.push(audio);
+    autoCheckAudio();
+    renderAttachments(); renderProps(); updateSaveBtn();
+  } catch (e) {
+    // 文字起こしに失敗しても録音は残す
+    state.audios.push(audio);
+    renderAttachments(); updateSaveBtn();
+    toast("文字起こしに失敗しました: " + e.message, true);
+  } finally {
+    $("recPanel").classList.add("hidden");
+    rec = null;
+  }
+}
+
+function insertText(t) {
+  if (!t) return;
+  const el = $("text");
+  const cur = el.value;
+  el.value = cur ? cur.replace(/\s+$/, "") + "\n" + t : t;
+  autoGrow(); saveDraft();
+}
+
+// ===== 保存 =====
+$("saveBtn").onclick = save;
+async function save() {
+  if (state.saving) return;
+  state.saving = true; updateSaveBtn();
+  try {
+    const attachments = [];
+    for (const im of state.images) {
+      const { id } = await apiFile("upload", im.file);
+      attachments.push({ id, kind: "image" });
+    }
+    for (const a of state.audios.filter((x) => x.keep)) {
+      if (a.blob.size > 5 * 1024 * 1024) toast("録音が5MBを超えています。Notionの無料プランだと保存できないことがあります", true);
+      const { id } = await apiFile("upload", a.blob, `voice-${Date.now()}.${a.ext}`);
+      // webm は Notion の音声ブロックが対応していないのでファイルとして添付
+      attachments.push({ id, kind: a.ext === "webm" ? "file" : "audio" });
+    }
+    const res = await api({
+      action: "save",
+      databaseId: state.dbId,
+      text: $("text").value,
+      props: state.values,
+      attachments,
+    });
+    toast("保存しました", false, res.url);
+    resetForm();
+  } catch (e) {
+    toast("保存できませんでした: " + e.message, true);
+  } finally {
+    state.saving = false; updateSaveBtn();
+  }
+}
+
+function resetForm() {
+  $("text").value = "";
+  store.del("qn.draft." + state.dbId);
+  state.images.forEach((im) => URL.revokeObjectURL(im.url));
+  state.audios.forEach((a) => URL.revokeObjectURL(a.url));
+  state.images = []; state.audios = []; state.showUrl = false;
+  const keepDates = {};
+  for (const p of state.schema.properties) if (p.type === "date") keepDates[p.name] = state.values[p.name];
+  applySchema(state.schema);
+  Object.assign(state.values, keepDates);
+  renderProps(); renderAttachments(); autoGrow();
+}
+
+// ===== シート =====
+function openSheet(html) { $("sheetBody").innerHTML = html; $("sheet").classList.remove("hidden"); }
+function closeSheet() { $("sheet").classList.add("hidden"); }
+$("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet" || e.target.closest(".close")) closeSheet(); });
+
+// DB 切り替え
+$("dbBtn").onclick = () => {
+  const list = visibleDbs();
+  openSheet(`<h2>保存先<button class="close">閉じる</button></h2>
+    ${list.length ? list.map((d) => `<button class="list-item ${d.id === state.dbId ? "current" : ""}" style="width:100%;text-align:left" data-pick="${d.id}">
+      <span class="t">${d.icon ? esc(d.icon) + " " : ""}${esc(d.title)}</span>${d.id === state.defaultId ? `<span class="s">デフォルト</span>` : ""}</button>`).join("")
+      : `<p class="muted">表示できるデータベースがありません。設定から追加してください。</p>`}`);
+};
+$("sheetBody").addEventListener("click", (e) => {
+  const pick = e.target.closest("[data-pick]");
+  if (pick) { closeSheet(); openDb(pick.dataset.pick); return; }
+  const star = e.target.closest("[data-star]");
+  if (star) { state.defaultId = star.dataset.star; store.set("qn.default", state.defaultId); state.hidden = state.hidden.filter((x) => x !== state.defaultId); store.set("qn.hidden", state.hidden); renderSettings(); return; }
+  if (e.target.closest("#reloadDbs")) {
+    e.target.closest("#reloadDbs").textContent = "読み込み中…";
+    refreshDatabases().then(renderSettings).catch((err) => toast(err.message, true));
+    return;
+  }
+  if (e.target.closest("#logoutBtn")) { sb.auth.signOut(); closeSheet(); showLogin(); }
+});
+$("sheetBody").addEventListener("change", (e) => {
+  const id = e.target.dataset.show;
+  if (id === undefined) return;
+  state.hidden = e.target.checked ? state.hidden.filter((x) => x !== id) : [...new Set([...state.hidden, id])];
+  store.set("qn.hidden", state.hidden);
+});
+
+// 設定
+$("settingsBtn").onclick = renderSettings;
+function renderSettings() {
+  openSheet(`<h2>設定<button class="close">閉じる</button></h2>
+    <p class="muted">☆ = 起動時に開くデータベース　／　チェック = 切り替えに表示</p>
+    ${state.databases.map((d) => `<div class="list-item">
+      <button class="star ${d.id === state.defaultId ? "on" : ""}" data-star="${d.id}">${d.id === state.defaultId ? "★" : "☆"}</button>
+      <span class="t">${d.icon ? esc(d.icon) + " " : ""}${esc(d.title)}</span>
+      <input type="checkbox" class="toggle" data-show="${d.id}" ${state.hidden.includes(d.id) ? "" : "checked"}>
+    </div>`).join("")}
+    <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」から日記アプリと同じインテグレーションを追加すると出てきます。</p>
+    <button class="sub-btn" id="reloadDbs">一覧を更新</button>
+    <button class="sub-btn" id="logoutBtn" style="color:var(--rec)">ログアウト</button>`);
+}
+
+// 最近の保存
+$("historyBtn").onclick = async () => {
+  openSheet(`<h2>最近の保存<button class="close">閉じる</button></h2><div class="spinner" style="margin:20px auto"></div>`);
+  try {
+    const { pages } = await api({ action: "recent", databaseId: state.dbId });
+    const fmt = (s) => { const d = new Date(s); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`; };
+    openSheet(`<h2>最近の保存<button class="close">閉じる</button></h2>
+      ${pages.length ? pages.map((p) => `<a class="list-item link" href="${esc(p.url)}" target="_blank" rel="noopener"><span class="t">${esc(p.title)}</span><span class="s">${fmt(p.created)}</span></a>`).join("") : `<p class="muted">まだありません</p>`}`);
+  } catch (e) { closeSheet(); toast(e.message, true); }
+};
+
+// ===== テキスト =====
+$("text").addEventListener("input", () => {
+  autoGrow(); updateSaveBtn();
+  clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
+});
+
+// ===== 画面切り替え =====
+function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
+async function showApp() {
+  $("login").classList.add("hidden"); $("app").classList.remove("hidden");
+  // キャッシュがあれば先に開いて、裏で一覧を更新
+  if (state.defaultId) openDb(state.defaultId);
+  try {
+    await refreshDatabases();
+    if (!state.dbId) openDb(state.defaultId);
+    if (!state.defaultId) $("dbName").textContent = "データベースなし";
+  } catch (e) { toast("一覧を取得できません: " + e.message, true); }
+}
+
+$("loginForm").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  $("loginBtn").disabled = true; $("loginErr").textContent = "";
+  const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
+  $("loginBtn").disabled = false;
+  if (error) { $("loginErr").textContent = "ログインできませんでした（" + error.message + "）"; return; }
+  showApp();
+});
+
+document.addEventListener("visibilitychange", () => { if (document.hidden) saveDraft(); });
+
+(async () => {
+  const { data } = await sb.auth.getSession();
+  if (data.session) showApp(); else showLogin();
+})();
+</script>
+</body>
+</html>
