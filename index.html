@@ -73,21 +73,21 @@
   .hint { font-size: var(--fs-sub); color: var(--faint); margin: 0 0 6px; }
 
   /* プロパティ（大きめのボタンで、歩きながらでも押しやすく） */
-  #props { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
-  .prop-row { display: flex; align-items: center; gap: 10px; min-height: 48px; font-size: var(--fs); }
+  #props { border-top: 1px solid var(--line); padding-top: 8px; margin-top: 8px; font-size: var(--fs-sub); }
+  .prop-row { display: flex; align-items: center; gap: 8px; min-height: 36px; font-size: var(--fs-sub); }
   .prop-row svg { color: var(--sub); }
-  .date-val { position: relative; padding: 8px 10px; margin-left: -10px; border-radius: 8px; color: var(--ink); }
+  .date-val { position: relative; padding: 6px 8px; margin-left: -8px; border-radius: 8px; color: var(--ink); }
   .date-val:active { background: var(--hover); }
   .date-val input { position: absolute; inset: 0; opacity: 0; width: 100%; }
-  .date-val .k { color: var(--sub); margin-right: 10px; }
-  .link-btn { margin-left: auto; width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--faint); }
+  .date-val .k { color: var(--sub); margin-right: 8px; }
+  .link-btn { margin-left: auto; width: 36px; height: 36px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--faint); }
   .link-btn.on { color: var(--ink); }
-  .url-input { width: 100%; border: 1px solid var(--line); background: var(--field); border-radius: 10px; padding: 11px 12px; font-size: var(--fs); outline: none; margin: 2px 0 8px; }
-  .prop-label { font-size: var(--fs-sub); color: var(--sub); margin: 12px 0 6px; }
-  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
-  .chip { padding: 8px 14px; border-radius: 8px; font-size: var(--fs); line-height: 1.3; border: 1.5px solid transparent; opacity: .45; display: flex; align-items: center; gap: 8px; }
+  .url-input { width: 100%; border: 1px solid var(--line); background: var(--field); border-radius: 10px; padding: 8px 10px; font-size: 16px; outline: none; margin: 2px 0 6px; }
+  .prop-label { font-size: 12px; color: var(--sub); margin: 8px 0 4px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip { padding: 5px 10px; border-radius: 6px; font-size: var(--fs-sub); line-height: 1.3; border: 1.5px solid transparent; opacity: .45; display: flex; align-items: center; gap: 8px; }
   .chip.on { opacity: 1; border-color: var(--ink); }
-  .chip .sq { width: 16px; height: 16px; border-radius: 4px; border: 1.5px solid currentColor; display: flex; align-items: center; justify-content: center; }
+  .chip .sq { width: 13px; height: 13px; border-radius: 3px; border: 1.5px solid currentColor; display: flex; align-items: center; justify-content: center; }
   .chip.check { background: var(--field); color: var(--ink2); opacity: 1; border-color: var(--line); display: flex; align-items: center; gap: 6px; }
   .chip.check.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 
@@ -376,10 +376,10 @@ function renderProps() {
   let html = "";
   dates.forEach((p, i) => {
     const v = state.values[p.name];
-    html += `<div class="prop-row">${ICONS.date.replace(/width="16" height="16"/, 'width="22" height="22"')}
+    html += `<div class="prop-row">${ICONS.date.replace(/width="16" height="16"/, 'width="18" height="18"')}
       <label class="date-val"><span class="k">${esc(p.name)}</span>${v ? jpDate(v) : `<span style="color:var(--faint)">未設定</span>`}
         <input type="date" data-date="${esc(p.name)}" value="${esc(v || "")}"></label>
-      ${i === 0 && url ? `<button class="link-btn ${urlOpen ? "on" : ""}" id="urlToggle" aria-label="${esc(url.name)}">${ICONS.url.replace(/width="16" height="16"/, 'width="24" height="24"')}</button>` : ""}
+      ${i === 0 && url ? `<button class="link-btn ${urlOpen ? "on" : ""}" id="urlToggle" aria-label="${esc(url.name)}">${ICONS.url.replace(/width="16" height="16"/, 'width="18" height="18"')}</button>` : ""}
     </div>`;
   });
   if (url && (urlOpen || !dates.length)) {
@@ -388,13 +388,13 @@ function renderProps() {
   for (const p of selects) {
     const v = state.values[p.name];
     const on = (n) => (Array.isArray(v) ? v.includes(n) : v === n);
-    html += `${selects.length > 1 ? `<div class="prop-label">${esc(p.name)}</div>` : `<div style="height:6px"></div>`}
+    html += `${selects.length > 1 ? `<div class="prop-label">${esc(p.name)}</div>` : `<div style="height:2px"></div>`}
       <div class="chips">${p.options.map((o) =>
         `<button class="chip ${on(o.name) ? "on" : ""}" style="${colorStyle(o.color)}" data-opt="${esc(p.name)}" data-val="${esc(o.name)}">${esc(o.name)}</button>`).join("")}</div>`;
   }
   if (checks.length) {
-    html += `<div style="height:10px"></div><div class="chips">${checks.map((p) =>
-      `<button class="chip check ${state.values[p.name] ? "on" : ""}" data-check="${esc(p.name)}"><span class="sq">${state.values[p.name] ? '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : ""}</span>${esc(p.name)}</button>`).join("")}</div>`;
+    html += `<div style="height:6px"></div><div class="chips">${checks.map((p) =>
+      `<button class="chip check ${state.values[p.name] ? "on" : ""}" data-check="${esc(p.name)}"><span class="sq">${state.values[p.name] ? '<svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : ""}</span>${esc(p.name)}</button>`).join("")}</div>`;
   }
   $("props").innerHTML = html;
 }
