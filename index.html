@@ -40,7 +40,6 @@
   /* ── ログイン ── */
   #login { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
   .login-box { width: 100%; max-width: 340px; }
-  .login-box img { width: 56px; height: 56px; border-radius: 13px; border: 1px solid var(--line); margin-bottom: 18px; }
   .login-box h1 { font-size: 26px; font-weight: 700; color: var(--ink); margin: 0 0 4px; letter-spacing: -.01em; }
   .login-box p { margin: 0 0 24px; color: var(--sub); font-size: 14px; }
   .login-box input { width: 100%; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); margin-bottom: 10px; outline: none; }
@@ -54,57 +53,53 @@
     position: sticky; top: 0; z-index: 5; background: rgba(255,255,255,.94); backdrop-filter: blur(10px);
     padding: calc(var(--safe-t) + 8px) 12px 8px; display: flex; align-items: center; gap: 4px;
   }
-  #dbBtn { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; min-width: 0; color: var(--ink); font-weight: 600; font-size: 15px; }
+  #dbBtn { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; min-width: 0; color: var(--ink); font-weight: 700; font-size: 18px; }
   #dbBtn:active, .icon-btn:active { background: var(--hover); }
   #dbIcon { font-size: 18px; line-height: 1; color: var(--sub); }
   #dbBtn .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #dbBtn .chev { color: var(--faint); }
   .spacer { flex: 1; }
-  .icon-btn { width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 6px; }
+  .icon-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 6px; }
 
-  /* ── ページ ── */
-  main { padding: 18px 24px calc(var(--safe-b) + 110px); max-width: 720px; margin: 0 auto; }
-  #title {
-    width: 100%; border: none; outline: none; background: transparent; padding: 0; margin: 0 0 14px;
-    font-size: 30px; font-weight: 700; line-height: 1.25; color: var(--ink); letter-spacing: -.01em;
+  /* ── 入力（タイトルと本文は1つの欄。1行目がタイトル） ── */
+  main { padding: 6px 20px calc(var(--safe-b) + 120px); max-width: 720px; margin: 0 auto; }
+  #text {
+    width: 100%; border: none; outline: none; resize: none; background: transparent; padding: 6px 0;
+    min-height: 34vh; font-size: 20px; line-height: 1.65; color: var(--ink);
   }
-  #title::placeholder { color: #E1E0DD; }
+  #text::placeholder { color: #C9C7C2; }
+  .hint { font-size: 13px; color: var(--faint); margin: 0 0 6px; }
 
-  /* プロパティ（Notionのページ上部と同じ並び） */
-  .prop { display: flex; align-items: flex-start; min-height: 34px; padding: 3px 0; }
-  .prop-name { width: 104px; flex: none; display: flex; align-items: center; gap: 6px; color: var(--sub); font-size: 14px; padding: 5px 0; }
-  .prop-name span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  .prop-val { flex: 1; min-width: 0; font-size: 14px; color: var(--ink2); padding: 4px 6px; border-radius: 4px; position: relative; }
-  .prop-val.tap:active { background: var(--hover); }
-  .prop-val .empty { color: var(--faint); }
-  .prop-val input[type=date] { position: absolute; inset: 0; opacity: 0; width: 100%; }
-  .prop-val input[type=url] { width: 100%; border: none; outline: none; background: transparent; font-size: 14px; padding: 0; }
-  .prop-val input[type=url]::placeholder { color: var(--faint); }
-  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .chip { padding: 1px 8px; border-radius: 4px; font-size: 14px; line-height: 22px; opacity: .38; }
-  .chip.on { opacity: 1; }
-  .box { width: 18px; height: 18px; border-radius: 3px; border: 1.5px solid #C7C6C3; display: flex; align-items: center; justify-content: center; margin-top: 3px; }
-  .box.on { background: #2383E2; border-color: #2383E2; color: #fff; }
-  hr.div { border: none; border-top: 1px solid var(--line); margin: 12px 0 14px; }
-
-  #body {
-    width: 100%; border: none; outline: none; resize: none; background: transparent; padding: 0;
-    min-height: 30vh; font-size: 16px; line-height: 1.65; color: var(--ink2);
-  }
-  #body::placeholder { color: var(--faint); }
+  /* プロパティ（大きめのボタンで、歩きながらでも押しやすく） */
+  #props { border-top: 1px solid var(--line); padding-top: 12px; margin-top: 8px; }
+  .prop-row { display: flex; align-items: center; gap: 10px; min-height: 48px; font-size: 17px; }
+  .prop-row svg { color: var(--sub); }
+  .date-val { position: relative; padding: 8px 10px; margin-left: -10px; border-radius: 8px; color: var(--ink); }
+  .date-val:active { background: var(--hover); }
+  .date-val input { position: absolute; inset: 0; opacity: 0; width: 100%; }
+  .date-val .k { color: var(--sub); margin-right: 8px; }
+  .link-btn { margin-left: auto; width: 44px; height: 44px; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: var(--faint); }
+  .link-btn.on { color: var(--ink); }
+  .url-input { width: 100%; border: 1px solid var(--line); background: var(--field); border-radius: 10px; padding: 11px 12px; font-size: 17px; outline: none; margin: 2px 0 8px; }
+  .prop-label { font-size: 13px; color: var(--sub); margin: 12px 0 6px; }
+  .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .chip { padding: 8px 14px; border-radius: 8px; font-size: 17px; line-height: 1.3; border: 2px solid transparent; opacity: .5; }
+  .chip.on { opacity: 1; border-color: var(--ink); font-weight: 600; }
+  .chip.check { background: var(--field); color: var(--ink2); opacity: 1; border-color: var(--line); display: flex; align-items: center; gap: 6px; }
+  .chip.check.on { background: var(--ink); color: #fff; border-color: var(--ink); }
 
   /* 添付 */
   #attachments { display: flex; flex-wrap: wrap; gap: 8px; margin: 14px 0 0; }
   #attachments:empty { display: none; }
-  .thumb { position: relative; width: 84px; height: 84px; border-radius: 6px; overflow: hidden; background: var(--field); border: 1px solid var(--line); }
+  .thumb { position: relative; width: 88px; height: 88px; border-radius: 6px; overflow: hidden; background: var(--field); border: 1px solid var(--line); }
   .thumb img { width: 100%; height: 100%; object-fit: cover; }
-  .x { position: absolute; top: 4px; right: 4px; width: 20px; height: 20px; border-radius: 4px; background: rgba(25,25,25,.6); color: #fff; font-size: 12px; line-height: 20px; text-align: center; }
+  .x { position: absolute; top: 4px; right: 4px; width: 26px; height: 26px; border-radius: 6px; background: rgba(25,25,25,.6); color: #fff; font-size: 14px; line-height: 26px; text-align: center; }
   .audio-item { display: flex; align-items: center; gap: 10px; border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; width: 100%; background: #fff; }
-  .audio-item .play { width: 30px; height: 30px; border-radius: 50%; background: var(--hover); display: flex; align-items: center; justify-content: center; color: var(--ink); }
-  .audio-item .meta { flex: 1; font-size: 14px; min-width: 0; color: var(--ink); }
-  .audio-item .meta small { display: block; color: var(--sub); font-size: 12px; }
-  .audio-item label { font-size: 12px; color: var(--sub); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
-  .audio-item .del { color: var(--faint); padding: 4px; }
+  .audio-item .play { width: 40px; height: 40px; border-radius: 50%; background: var(--hover); display: flex; align-items: center; justify-content: center; color: var(--ink); }
+  .audio-item .meta { flex: 1; font-size: 16px; min-width: 0; color: var(--ink); }
+  .audio-item .meta small { display: block; color: var(--sub); font-size: 13px; }
+  .audio-item label { font-size: 14px; color: var(--sub); display: flex; align-items: center; gap: 5px; white-space: nowrap; }
+  .audio-item .del { color: var(--faint); padding: 10px; }
 
   /* 下のバー */
   #bar {
@@ -112,21 +107,21 @@
     border-top: 1px solid var(--line); padding: 10px 16px calc(var(--safe-b) + 10px);
     display: flex; align-items: center; gap: 10px;
   }
-  .tool { width: 44px; height: 44px; border-radius: 10px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink2); background: #fff; }
+  .tool { width: 56px; height: 56px; border-radius: 14px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink2); background: #fff; }
   .tool:active { background: var(--hover); }
-  #recBtn .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--red); position: absolute; top: 9px; right: 9px; }
+  #recBtn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); position: absolute; top: 11px; right: 11px; }
   #recBtn { position: relative; }
-  #saveBtn { flex: 1; height: 44px; border-radius: 10px; background: var(--ink); color: #fff; font-weight: 600; font-size: 16px; }
+  #saveBtn { flex: 1; height: 56px; border-radius: 14px; background: var(--ink); color: #fff; font-weight: 700; font-size: 18px; }
   #saveBtn:disabled { background: #E3E2E0; color: #A5A29C; }
 
   /* 録音中 */
   #recPanel { position: fixed; inset: 0; z-index: 20; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; }
-  #recLabel { display: flex; align-items: center; gap: 8px; color: var(--sub); font-size: 14px; }
+  #recLabel { display: flex; align-items: center; gap: 8px; color: var(--sub); font-size: 17px; }
   #recLabel i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: blink 1.2s infinite; }
   #recTime { font-size: 56px; font-weight: 300; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
-  #recStop { width: 72px; height: 72px; border-radius: 50%; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; }
-  #recStop span { width: 24px; height: 24px; border-radius: 5px; background: var(--ink); }
-  #recCancel { color: var(--sub); font-size: 14px; padding: 8px 14px; border-radius: 6px; }
+  #recStop { width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; }
+  #recStop span { width: 32px; height: 32px; border-radius: 5px; background: var(--ink); }
+  #recCancel { color: var(--sub); font-size: 17px; padding: 12px 20px; border-radius: 6px; }
   @keyframes blink { 50% { opacity: .25; } }
   .spinner { width: 28px; height: 28px; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -135,21 +130,21 @@
   .sheet-bg { position: fixed; inset: 0; z-index: 30; background: rgba(15,15,15,.25); display: flex; align-items: flex-end; }
   .sheet { width: 100%; max-height: 80vh; overflow-y: auto; background: #fff; border-radius: 12px 12px 0 0; padding: 8px 8px calc(var(--safe-b) + 14px); box-shadow: 0 -4px 24px rgba(0,0,0,.08); }
   .grab { width: 36px; height: 4px; border-radius: 2px; background: var(--line); margin: 2px auto 8px; }
-  .sheet h2 { font-size: 12px; font-weight: 600; color: var(--sub); margin: 6px 10px 4px; display: flex; align-items: center; }
+  .sheet h2 { font-size: 14px; font-weight: 600; color: var(--sub); margin: 6px 10px 4px; display: flex; align-items: center; }
   .sheet h2 .close { margin-left: auto; color: var(--sub); font-weight: 400; }
-  .item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border-radius: 6px; width: 100%; text-align: left; color: var(--ink2); text-decoration: none; font-size: 15px; }
+  .item { display: flex; align-items: center; gap: 12px; padding: 13px 12px; border-radius: 8px; width: 100%; text-align: left; color: var(--ink2); text-decoration: none; font-size: 17px; }
   .item:active { background: var(--hover); }
   .item .ic { width: 22px; text-align: center; color: var(--sub); }
   .item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .item .s { color: var(--faint); font-size: 12px; white-space: nowrap; }
+  .item .s { color: var(--faint); font-size: 14px; white-space: nowrap; }
   .item .check { color: var(--ink); }
-  .star { color: #D3D1CB; font-size: 17px; width: 22px; }
+  .star { color: #D3D1CB; font-size: 22px; width: 30px; }
   .star.on { color: var(--ink); }
-  .toggle { width: 18px; height: 18px; accent-color: #191919; }
-  .muted { color: var(--sub); font-size: 12px; margin: 6px 10px 10px; line-height: 1.6; }
+  .toggle { width: 22px; height: 22px; accent-color: #191919; }
+  .muted { color: var(--sub); font-size: 14px; margin: 6px 10px 10px; line-height: 1.6; }
   .sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
-  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 80px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 9px 14px; border-radius: 8px; font-size: 14px; max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 92px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 10px; font-size: 16px; max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
   .toast.bad { background: var(--red); }
   .toast a { color: #fff; text-decoration: underline; margin-left: 10px; }
 </style>
@@ -158,7 +153,6 @@
 
 <section id="login" class="hidden">
   <form class="login-box" id="loginForm">
-    <img src="icon-180.png" alt="">
     <h1>Notion Quick</h1>
     <p>日記アプリと同じアカウントでログイン</p>
     <input id="email" type="email" placeholder="メールアドレス" autocomplete="username" required>
@@ -185,19 +179,18 @@
   </header>
 
   <main>
-    <input id="title" placeholder="無題" autocomplete="off" enterkeyhint="next">
-    <div id="props"></div>
-    <hr class="div">
-    <textarea id="body" placeholder="ここに書く…"></textarea>
+    <textarea id="text" placeholder="ここに書く"></textarea>
+    <div class="hint" id="hint"></div>
     <div id="attachments"></div>
+    <div id="props"></div>
   </main>
 
   <div id="bar">
     <button class="tool" id="photoBtn" aria-label="写真">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
     <button class="tool" id="recBtn" aria-label="録音">
-      <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
       <span class="dot"></span>
     </button>
     <button id="saveBtn" disabled>保存</button>
@@ -296,6 +289,7 @@ const state = {
   dbId: "",
   schema: null,
   values: {},                                // プロパティの入力値 {名前: 値}
+  showUrl: false,
   images: [],                                // [{file, url}]
   audios: [],                                // [{blob, url, ext, sec, keep}]
   saving: false,
@@ -346,37 +340,45 @@ function applySchema(schema, keepValues = false) {
     }
     if (state.audios.length) autoCheckAudio();
     const d = store.get("qn.draft." + state.dbId);
-    $("title").value = d?.title || "";
-    $("body").value = typeof d === "string" ? d : d?.body || "";
+    $("text").value = typeof d === "string" ? d : d ? [d.title, d.body].filter(Boolean).join("\n") : "";
     autoGrow();
   }
-  $("title").placeholder = titleProp()?.name || "無題";
+  const tp = titleProp();
+  $("hint").textContent = tp ? `1行目 →「${tp.name}」　2行目から → 本文` : "";
   renderProps();
   updateSaveBtn();
 }
 
 // ===== 描画 =====
 function renderProps() {
-  const props = (state.schema?.properties || []).filter((p) => p.type !== "title");
-  const order = { date: 0, multi_select: 1, select: 2, status: 3, checkbox: 4, url: 5 };
-  props.sort((a, b) => order[a.type] - order[b.type]);
+  const props = state.schema?.properties || [];
+  const dates = props.filter((p) => p.type === "date");
+  const url = props.find((p) => p.type === "url");
+  const selects = props.filter((p) => ["multi_select", "select", "status"].includes(p.type) && p.options.length);
+  const checks = props.filter((p) => p.type === "checkbox");
+  const urlOpen = url && (state.showUrl || state.values[url.name]);
   let html = "";
-  for (const p of props) {
+  dates.forEach((p, i) => {
     const v = state.values[p.name];
-    const name = `<div class="prop-name">${ICONS[p.type] || ""}<span>${esc(p.name)}</span></div>`;
-    if (p.type === "date") {
-      html += `<div class="prop">${name}<label class="prop-val tap">${v ? jpDate(v) : `<span class="empty">空</span>`}
-        <input type="date" data-date="${esc(p.name)}" value="${esc(v || "")}"></label></div>`;
-    } else if (p.type === "multi_select" || p.type === "select" || p.type === "status") {
-      if (!p.options.length) continue;
-      const on = (n) => (Array.isArray(v) ? v.includes(n) : v === n);
-      html += `<div class="prop">${name}<div class="prop-val"><div class="chips">${p.options.map((o) =>
-        `<button class="chip ${on(o.name) ? "on" : ""}" style="${colorStyle(o.color)}" data-opt="${esc(p.name)}" data-val="${esc(o.name)}">${esc(o.name)}</button>`).join("")}</div></div></div>`;
-    } else if (p.type === "checkbox") {
-      html += `<div class="prop">${name}<div class="prop-val tap" data-check="${esc(p.name)}"><div class="box ${v ? "on" : ""}">${v ? '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>' : ""}</div></div></div>`;
-    } else if (p.type === "url") {
-      html += `<div class="prop">${name}<div class="prop-val"><input type="url" inputmode="url" placeholder="空" data-url="${esc(p.name)}" value="${esc(v || "")}"></div></div>`;
-    }
+    html += `<div class="prop-row">${ICONS.date.replace(/width="16" height="16"/, 'width="22" height="22"')}
+      <label class="date-val"><span class="k">${esc(p.name)}</span>${v ? jpDate(v) : `<span style="color:var(--faint)">未設定</span>`}
+        <input type="date" data-date="${esc(p.name)}" value="${esc(v || "")}"></label>
+      ${i === 0 && url ? `<button class="link-btn ${urlOpen ? "on" : ""}" id="urlToggle" aria-label="${esc(url.name)}">${ICONS.url.replace(/width="16" height="16"/, 'width="24" height="24"')}</button>` : ""}
+    </div>`;
+  });
+  if (url && (urlOpen || !dates.length)) {
+    html += `<input class="url-input" type="url" inputmode="url" placeholder="${esc(url.name)}（https://…）" data-url="${esc(url.name)}" value="${esc(state.values[url.name] || "")}">`;
+  }
+  for (const p of selects) {
+    const v = state.values[p.name];
+    const on = (n) => (Array.isArray(v) ? v.includes(n) : v === n);
+    html += `${selects.length > 1 ? `<div class="prop-label">${esc(p.name)}</div>` : `<div style="height:6px"></div>`}
+      <div class="chips">${p.options.map((o) =>
+        `<button class="chip ${on(o.name) ? "on" : ""}" style="${colorStyle(o.color)}" data-opt="${esc(p.name)}" data-val="${esc(o.name)}">${esc(o.name)}</button>`).join("")}</div>`;
+  }
+  if (checks.length) {
+    html += `<div style="height:10px"></div><div class="chips">${checks.map((p) =>
+      `<button class="chip check ${state.values[p.name] ? "on" : ""}" data-check="${esc(p.name)}">${state.values[p.name] ? "✓" : "□"} ${esc(p.name)}</button>`).join("")}</div>`;
   }
   $("props").innerHTML = html;
 }
@@ -398,22 +400,22 @@ function renderAttachments() {
 }
 
 function updateSaveBtn() {
-  const has = $("title").value.trim() || $("body").value.trim() || state.images.length || state.audios.some((a) => a.keep);
+  const has = $("text").value.trim() || state.images.length || state.audios.some((a) => a.keep);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
   $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
 }
 
 function autoGrow() {
-  const el = $("body");
+  const el = $("text");
   el.style.height = "auto";
-  el.style.height = Math.max(window.innerHeight * 0.3, el.scrollHeight + 2) + "px";
+  el.style.height = Math.max(window.innerHeight * 0.34, el.scrollHeight + 2) + "px";
 }
 
 let draftTimer;
 function saveDraft() {
   if (!state.dbId) return;
-  const title = $("title").value, body = $("body").value;
-  if (title.trim() || body.trim()) store.set("qn.draft." + state.dbId, { title, body });
+  const v = $("text").value;
+  if (v.trim()) store.set("qn.draft." + state.dbId, v);
   else store.del("qn.draft." + state.dbId);
 }
 
@@ -433,7 +435,12 @@ $("props").addEventListener("click", (e) => {
     return;
   }
   const chk = e.target.closest("[data-check]");
-  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); }
+  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); return; }
+  if (e.target.closest("#urlToggle")) {
+    state.showUrl = !state.showUrl;
+    renderProps();
+    if (state.showUrl) document.querySelector("[data-url]")?.focus();
+  }
 });
 $("props").addEventListener("change", (e) => {
   if (e.target.dataset.date !== undefined) { state.values[e.target.dataset.date] = e.target.value; renderProps(); }
@@ -563,7 +570,7 @@ async function onRecStop() {
 
 function insertText(t) {
   if (!t) return;
-  const el = $("body");
+  const el = $("text");
   const cur = el.value;
   el.value = cur ? cur.replace(/\s+$/, "") + "\n" + t : t;
   autoGrow(); saveDraft();
@@ -586,13 +593,10 @@ async function save() {
       // webm は Notion の音声ブロックが対応していないのでファイルとして添付
       attachments.push({ id, kind: a.ext === "webm" ? "file" : "audio" });
     }
-    // タイトル欄が空なら、本文の1行目がタイトルになる
-    const title = $("title").value.trim().replace(/\n/g, " ");
-    const body = $("body").value;
     const res = await api({
       action: "save",
       databaseId: state.dbId,
-      text: title ? title + "\n" + body : body,
+      text: $("text").value,   // 1行目がタイトル、2行目からが本文
       props: state.values,
       attachments,
     });
@@ -609,12 +613,13 @@ function resetForm() {
   store.del("qn.draft." + state.dbId);
   state.images.forEach((im) => URL.revokeObjectURL(im.url));
   state.audios.forEach((a) => URL.revokeObjectURL(a.url));
-  state.images = []; state.audios = [];
+  state.images = []; state.audios = []; state.showUrl = false;
   const keepDates = {};
   for (const p of state.schema.properties) if (p.type === "date") keepDates[p.name] = state.values[p.name];
   applySchema(state.schema);
   Object.assign(state.values, keepDates);
   renderProps(); renderAttachments(); autoGrow();
+  $("text").focus();   // 続けて次を書けるように
 }
 
 // ===== シート =====
@@ -680,14 +685,10 @@ $("historyBtn").onclick = async () => {
 };
 
 // ===== テキスト =====
-for (const id of ["title", "body"]) {
-  $(id).addEventListener("input", () => {
-    if (id === "body") autoGrow();
-    updateSaveBtn();
-    clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
-  });
-}
-$("title").addEventListener("keydown", (e) => { if (e.key === "Enter" && !e.isComposing) { e.preventDefault(); $("body").focus(); } });
+$("text").addEventListener("input", () => {
+  autoGrow(); updateSaveBtn();
+  clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
+});
 
 // ===== 画面切り替え =====
 function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
