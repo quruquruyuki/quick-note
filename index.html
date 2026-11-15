@@ -64,13 +64,12 @@
   .spacer { flex: 1; }
   .icon-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 6px; }
 
-  /* ── 入力（タイトルと本文は1つの欄。1行目がタイトル） ── */
+  /* ── 入力（見た目は1つの欄。1行目＝タイトル 18px、2行目から＝本文 16px） ── */
   main { padding: 6px 20px calc(var(--safe-b) + 120px); max-width: 720px; margin: 0 auto; }
-  #text {
-    width: 100%; border: none; outline: none; resize: none; background: transparent; padding: 6px 0;
-    min-height: 34vh; font-size: var(--fs-input); line-height: 1.7; color: var(--ink);
-  }
-  #text::placeholder { color: #C9C7C2; }
+  #title, #body { width: 100%; border: none; outline: none; background: transparent; color: var(--ink); display: block; }
+  #title { font-size: var(--fs-input); line-height: 1.7; padding: 6px 0 0; height: calc(var(--fs-input) * 1.7 + 6px); }
+  #body { font-size: calc(var(--fs-input) - 2px); line-height: 1.7; resize: none; padding: 0 0 6px; min-height: 30vh; color: var(--ink2); }
+  #title::placeholder, #body::placeholder { color: #C9C7C2; }
   .hint { font-size: var(--fs-sub); color: var(--faint); margin: 0 0 6px; }
 
   /* プロパティ（大きめのボタンで、歩きながらでも押しやすく） */
@@ -183,7 +182,8 @@
   </header>
 
   <main>
-    <textarea id="text" placeholder="ここに書く"></textarea>
+    <input id="title" placeholder="ここに書く" autocomplete="off" enterkeyhint="next">
+    <textarea id="body"></textarea>
     <div class="hint" id="hint"></div>
     <div id="attachments"></div>
     <div id="props"></div>
@@ -285,6 +285,18 @@ function apiFile(action, file, name) {
   return api(fd);
 }
 
+// タイトル欄と本文欄を「1行目＋2行目以降」の1つの文字列として扱う
+function getText() {
+  const t = $("title").value.trim(), b = $("body").value;
+  return t ? t + (b ? "\n" + b : "") : b;
+}
+function setText(s) {
+  const lines = String(s || "").split("\n");
+  $("title").value = lines[0] || "";
+  $("body").value = lines.slice(1).join("\n");
+  autoGrow();
+}
+
 // ===== 状態 =====
 const state = {
   databases: store.get("qn.dbs") || [],      // [{id,title,icon}]
@@ -344,7 +356,7 @@ function applySchema(schema, keepValues = false) {
     }
     if (state.audios.length) autoCheckAudio();
     const d = store.get("qn.draft." + state.dbId);
-    $("text").value = typeof d === "string" ? d : d ? [d.title, d.body].filter(Boolean).join("\n") : "";
+    setText(typeof d === "string" ? d : d ? [d.title, d.body].filter(Boolean).join("\n") : "");
     autoGrow();
   }
   const tp = titleProp();
@@ -404,13 +416,13 @@ function renderAttachments() {
 }
 
 function updateSaveBtn() {
-  const has = $("text").value.trim() || state.images.length || state.audios.some((a) => a.keep);
+  const has = getText().trim() || state.images.length || state.audios.some((a) => a.keep);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
   $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
 }
 
 function autoGrow() {
-  const el = $("text");
+  const el = $("body");
   el.style.height = "auto";
   el.style.height = Math.max(window.innerHeight * 0.34, el.scrollHeight + 2) + "px";
 }
@@ -418,7 +430,7 @@ function autoGrow() {
 let draftTimer;
 function saveDraft() {
   if (!state.dbId) return;
-  const v = $("text").value;
+  const v = getText();
   if (v.trim()) store.set("qn.draft." + state.dbId, v);
   else store.del("qn.draft." + state.dbId);
 }
@@ -574,10 +586,9 @@ async function onRecStop() {
 
 function insertText(t) {
   if (!t) return;
-  const el = $("text");
-  const cur = el.value;
-  el.value = cur ? cur.replace(/\s+$/, "") + "\n" + t : t;
-  autoGrow(); saveDraft();
+  const cur = getText();
+  setText(cur ? cur.replace(/\s+$/, "") + "\n" + t : t);
+  updateSaveBtn(); saveDraft();
 }
 
 // ===== 保存 =====
@@ -600,7 +611,7 @@ async function save() {
     const res = await api({
       action: "save",
       databaseId: state.dbId,
-      text: $("text").value,   // 1行目がタイトル、2行目からが本文
+      text: getText(),   // 1行目がタイトル、2行目からが本文
       props: state.values,
       attachments,
     });
@@ -623,7 +634,7 @@ function resetForm() {
   applySchema(state.schema);
   Object.assign(state.values, keepDates);
   renderProps(); renderAttachments(); autoGrow();
-  $("text").focus();   // 続けて次を書けるように
+  $("title").focus();   // 続けて次を書けるように
 }
 
 // ===== シート =====
@@ -689,9 +700,48 @@ $("historyBtn").onclick = async () => {
 };
 
 // ===== テキスト =====
-$("text").addEventListener("input", () => {
+function onType() {
   autoGrow(); updateSaveBtn();
   clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
+}
+$("title").addEventListener("input", onType);
+$("body").addEventListener("input", onType);
+// 1行目で改行 → 2行目（本文）へ
+$("title").addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && !e.isComposing) {
+    e.preventDefault();
+    const t = $("title"), b = $("body");
+    // カーソルより後ろの文字は本文の先頭へ
+    const tail = t.value.slice(t.selectionEnd);
+    t.value = t.value.slice(0, t.selectionStart);
+    if (tail) b.value = b.value ? tail + "\n" + b.value : tail;
+    b.focus(); b.setSelectionRange(0, 0);
+    onType();
+  }
+});
+// 本文の先頭で削除 → 1行目の末尾へ戻る（本文の1行目は1行目にくっつく）
+$("body").addEventListener("keydown", (e) => {
+  const b = $("body");
+  if (e.key === "Backspace" && !e.isComposing && b.selectionStart === 0 && b.selectionEnd === 0) {
+    e.preventDefault();
+    const t = $("title"), pos = t.value.length;
+    const [first, ...rest] = b.value.split("\n");
+    t.value += first; b.value = rest.join("\n");
+    t.focus(); t.setSelectionRange(pos, pos);
+    onType();
+  }
+});
+// 1行目に複数行を貼り付けたら、2行目以降は本文へ
+$("title").addEventListener("paste", (e) => {
+  const s = e.clipboardData?.getData("text") || "";
+  if (!s.includes("\n")) return;
+  e.preventDefault();
+  const t = $("title");
+  const before = t.value.slice(0, t.selectionStart), after = t.value.slice(t.selectionEnd);
+  const [first, ...rest] = s.replace(/\r\n/g, "\n").split("\n");
+  t.value = before + first;
+  $("body").value = rest.join("\n") + after + ($("body").value ? "\n" + $("body").value : "");
+  onType();
 });
 
 // ===== 画面切り替え =====
