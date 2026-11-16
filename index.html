@@ -128,6 +128,8 @@
   #recPanel { position: fixed; inset: 0; z-index: 20; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; }
   #recLabel { display: flex; align-items: center; gap: 8px; color: var(--sub); font-size: var(--fs); }
   #recLabel i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: blink 1.2s infinite; }
+  #recCost { font-size: var(--fs-sub); color: var(--faint); min-height: 1.4em; margin-top: -14px; }
+  #recCost.warn { color: var(--red); }
   #recLive { width: calc(100% - 40px); max-width: 640px; max-height: 38vh; overflow-y: auto; font-size: 17px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; text-align: left; }
   #recLive:empty { display: none; }
   #recLive .interim { color: var(--faint); }
@@ -220,6 +222,7 @@
 <div id="recPanel" class="hidden">
   <div id="recLabel"><i></i><span id="recStatus">録音中</span></div>
   <div id="recTime">0:00</div>
+  <div id="recCost"></div>
   <div id="recLive"></div>
   <button id="recStop" aria-label="停止"><span></span></button>
   <div class="spinner hidden" id="recSpin"></div>
@@ -234,10 +237,18 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-8";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-9";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
-const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
+// ── 録音しっぱなし防止 ──
+const MAX_REC_SEC = 5 * 60;                // 録音は最長5分（残り30秒で知らせる）
+const SILENCE_STOP_SEC = 30;               // 30秒しゃべらなかったら自動で止める
+// ── 料金の目安（OpenAI の公開価格。1ドル=150円で計算）──
+const YEN_PER_USD = 150;
+const PRICE_LIVE_PER_MIN = 0.017;          // gpt-live-transcribe
+const PRICE_FILE_PER_MIN = 0.0045;         // gpt-transcribe
+const yen = (sec, perMin) => (sec / 60) * perMin * YEN_PER_USD;
+const fmtYen = (v) => v < 0.1 ? "0.1円未満" : v < 10 ? v.toFixed(1) + "円" : Math.round(v) + "円";
 // 話しながら表示（OpenAIのリアルタイム文字起こし）。false にすると録音→ファイル文字起こしだけになる
 const LIVE_PREVIEW = true;
 
@@ -286,7 +297,7 @@ function toast(msg, bad = false, link) {
   t.innerHTML = esc(msg) + (link ? `<a href="${esc(link)}" target="_blank" rel="noopener">開く</a>` : "");
   document.body.appendChild(t);
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => t.remove(), bad ? 5000 : 3000);
+  toastTimer = setTimeout(() => t.remove(), Math.max(bad ? 5000 : 3000, String(msg).length * 110));
 }
 
 async function api(body) {
@@ -620,7 +631,12 @@ async function startRec() {
   rec.timer = setInterval(() => {
     const sec = (Date.now() - rec.start) / 1000;
     $("recTime").textContent = mmss(sec);
-    if (sec >= MAX_REC_SEC) stopRec();
+    const left = MAX_REC_SEC - sec;
+    const liveSec = live.okAt ? (Date.now() - live.okAt) / 1000 : 0;
+    $("recCost").textContent = (left <= 30 ? `あと${Math.ceil(left)}秒で自動で止まります　` : "")
+      + (liveSec ? `文字起こし 約${fmtYen(yen(liveSec, PRICE_LIVE_PER_MIN))}` : "");
+    $("recCost").classList.toggle("warn", left <= 30);
+    if (sec >= MAX_REC_SEC) { rec.autoStopped = `${MAX_REC_SEC / 60}分たったので、自動で止めました`; stopRec(); }
   }, 250);
 }
 function stopRec(cancel = false) {
@@ -655,6 +671,20 @@ async function takeLiveKey() {
   return value;
 }
 
+// 文字起こしの使用量を月ごとに記録（料金の目安を設定画面に出す）
+const monthKey = () => { const d = new Date(); return `qn.usage.${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`; };
+function addUsage(kind, sec) {
+  if (!(sec > 0)) return;
+  const u = store.get(monthKey()) || { live: 0, file: 0 };
+  u[kind] = (u[kind] || 0) + sec;
+  store.set(monthKey(), u);
+}
+function usageSummary() {
+  const u = store.get(monthKey()) || { live: 0, file: 0 };
+  const total = yen(u.live, PRICE_LIVE_PER_MIN) + yen(u.file, PRICE_FILE_PER_MIN);
+  return { total, liveMin: u.live / 60, fileMin: u.file / 60 };
+}
+
 // 録音の状態表示：つながるまでは「準備中」、つながったら「話してください」
 function setRecLabel() {
   const dot = $("recLabel").querySelector("i");
@@ -674,13 +704,22 @@ function startMeter(stream) {
     src.connect(an);
     const buf = new Float32Array(an.fftSize);
     let loud = 0;
+    live.lastVoiceAt = Date.now();
     const timer = setInterval(() => {
-      if (live.ok || live.failed) { stopMeter(); return; }
       an.getFloatTimeDomainData(buf);
       let sum = 0; for (const v of buf) sum += v * v;
       const rms = Math.sqrt(sum / buf.length);
       loud = rms > 0.02 ? loud + 1 : 0;
-      if (loud >= 2) live.missedStart = true;   // 声が出ていた（つながる前の分はリアルタイムでは届かない）
+      if (loud >= 2) {
+        live.lastVoiceAt = Date.now();
+        // つながる前に声が出ていた（その分はリアルタイムでは届かない）
+        if (LIVE_PREVIEW && !live.ok && !live.failed) live.missedStart = true;
+      }
+      // しゃべらない時間が続いたら、録音しっぱなしを防ぐため自動で止める
+      if (rec && Date.now() - live.lastVoiceAt > SILENCE_STOP_SEC * 1000) {
+        rec.autoStopped = `${SILENCE_STOP_SEC}秒間声がなかったので、自動で止めました`;
+        stopRec(false);
+      }
     }, 80);
     live.meter = { ctx, timer };
   } catch {}
@@ -706,10 +745,11 @@ function liveSend(ev) { try { if (live.dc?.readyState === "open") live.dc.send(J
 
 async function startLive(stream) {
   Object.assign(live, { pc: null, dc: null, track: null, items: {}, order: [], ok: false, failed: false, reason: "",
-                        gotDelta: false, commitTimer: null, startedAt: Date.now(), waiters: [], missedStart: false });
+                        gotDelta: false, commitTimer: null, startedAt: Date.now(), waiters: [], missedStart: false,
+                        okAt: 0, liveSec: 0 });
   renderLive(); setRecLabel();
-  if (!LIVE_PREVIEW) return;
   startMeter(stream);
+  if (!LIVE_PREVIEW) return;
   try {
     if (!window.RTCPeerConnection) throw new Error("この画面ではリアルタイム通信が使えません");
     const value = await takeLiveKey();
@@ -723,7 +763,7 @@ async function startLive(stream) {
     live.dc = dc;
     dc.onmessage = (e) => onLiveEvent(JSON.parse(e.data));
     dc.onopen = () => {
-      live.ok = true; stopMeter(); renderLive(); setRecLabel();
+      live.ok = true; live.okAt = Date.now(); renderLive(); setRecLabel();
       // 区切りなしでは文字が来ないモデルの場合に備え、数秒たっても文字が来なければ一定間隔で区切って送る
       live.commitTimer = setInterval(() => {
         if (!live.gotDelta && Date.now() - live.startedAt > 4000) liveSend({ type: "input_audio_buffer.commit" });
@@ -783,8 +823,8 @@ async function finishLive() {
   return t;
 }
 function stopLive() {
-  stopMeter();
   clearInterval(live.commitTimer);
+  if (live.pc && live.okAt) { live.liveSec = (Date.now() - live.okAt) / 1000; addUsage("live", live.liveSec); live.okAt = 0; }
   try { live.dc?.close(); } catch {}
   try { live.pc?.close(); } catch {}
   try { live.track?.stop(); } catch {}
@@ -797,6 +837,7 @@ $("recCancel").onclick = () => stopRec(true);
 async function onRecStop() {
   const r = rec;
   const sec = (Date.now() - r.start) / 1000;
+  stopMeter();
   if (r.cancelled) { stopLive(); r.stream.getTracks().forEach((t) => t.stop()); $("recPanel").classList.add("hidden"); rec = null; return; }
   $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
   $("recLabel").querySelector("i").classList.add("hidden");
@@ -812,12 +853,19 @@ async function onRecStop() {
   const audio = blob && size >= 2000 ? { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT } : null;
   try {
     let text = lt;
+    let extra = "";
     // リアルタイムが使えなかったとき、またはつながる前に話し始めていたとき（冒頭が抜けている）は、
     // 最初から取れている録音ファイルを文字起こしして、それを使う
     if (audio && (!text || live.missedStart)) {
       $("recStatus").textContent = "AIで文字起こし中…";
       text = (await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() })).text || "";
+      addUsage("file", sec);
+      if (lt && live.missedStart) {
+        extra = `話し始めが接続前だったので、録音全体も文字起こししました（追加 約${fmtYen(yen(sec, PRICE_FILE_PER_MIN))}）`;
+      }
     }
+    const notes = [r.autoStopped, extra].filter(Boolean);
+    if (notes.length) setTimeout(() => toast(notes.join("。"), false), 50);
     if (!text.trim()) {
       toast("声を聞き取れませんでした。マイクが使えているか確認して、もう一度録音してください", true);
       return;
@@ -977,6 +1025,10 @@ function renderSettings() {
     <div class="sep"></div>
     <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
     <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>
+    <div class="sep"></div>
+    <h2>今月の文字起こし料金（目安）</h2>
+    ${(() => { const u = usageSummary(); return `<p class="muted" style="font-size:var(--fs);color:var(--ink)">約${fmtYen(u.total)}</p>
+      <p class="muted">リアルタイム ${u.liveMin.toFixed(1)}分 ／ 録音ファイル ${u.fileMin.toFixed(1)}分<br>この端末で使った分だけの目安です（1ドル=${YEN_PER_USD}円で計算）。正確な金額はOpenAIの管理画面で確認できます。</p>`; })()}
     <p class="muted" style="text-align:center">Notion Quick ${APP_VERSION}</p>`);
 }
 
@@ -1104,7 +1156,13 @@ $("loginForm").addEventListener("submit", async (e) => {
   showApp();
 });
 
-document.addEventListener("visibilitychange", () => { if (document.hidden) saveDraft(); else prefetchLiveKey(); });
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) {
+    saveDraft();
+    // 別のアプリに切り替えたり画面を消したりしたら、録音は止める（つけっぱなしで料金がかかるのを防ぐ）
+    if (rec && rec.mr.state !== "inactive") { rec.autoStopped = "アプリを離れたので、録音を止めました"; stopRec(false); }
+  } else prefetchLiveKey();
+});
 
 (async () => {
   const { data } = await sb.auth.getSession();
