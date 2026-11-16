@@ -67,6 +67,7 @@
   #dbBtn .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   #dbBtn .chev { color: var(--faint); }
   .spacer { flex: 1; }
+  .icon-btn:disabled { opacity: .3; }
   .icon-btn { width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; color: var(--sub); border-radius: 6px; }
 
   /* ── 入力（見た目は1つの欄。1行目＝タイトル 20px、2行目から＝本文 17px） ── */
@@ -163,8 +164,9 @@
   .del-dict { color: var(--faint); padding: 6px; }
   .sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
-  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 92px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 10px; font-size: var(--fs-sub); max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
+  .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 92px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 10px; font-size: var(--fs-sub); width: max-content; max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
   .toast.bad { background: var(--red); }
+  .toast-act { color: #fff; text-decoration: underline; margin-left: 12px; font-weight: 600; font-size: inherit; }
   .toast a { color: #fff; text-decoration: underline; margin-left: 10px; }
 </style>
 </head>
@@ -190,6 +192,9 @@
       <svg class="chev" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M6 9l6 6 6-6"/></svg>
     </button>
     <div class="spacer"></div>
+    <button class="icon-btn" id="clearBtn" aria-label="クリア" disabled>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3.5l4.5 4.5-9.5 9.5H6.5L3.5 14.5z"/><path d="M10.5 9l4.5 4.5M6.5 17.5H21"/></svg>
+    </button>
     <button class="icon-btn" id="historyBtn" aria-label="最近の保存">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
     </button>
@@ -237,7 +242,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-9";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-10";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -290,11 +295,13 @@ const PAGE_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" s
 const dbIconHtml = (d) => d?.icon ? esc(d.icon) : PAGE_ICON;
 
 let toastTimer;
-function toast(msg, bad = false, link) {
+function toast(msg, bad = false, link, action) {
   document.querySelectorAll(".toast").forEach((t) => t.remove());
   const t = document.createElement("div");
   t.className = "toast" + (bad ? " bad" : "");
-  t.innerHTML = esc(msg) + (link ? `<a href="${esc(link)}" target="_blank" rel="noopener">開く</a>` : "");
+  t.innerHTML = esc(msg) + (link ? `<a href="${esc(link)}" target="_blank" rel="noopener">開く</a>` : "")
+    + (action ? `<button class="toast-act">${esc(action.label)}</button>` : "");
+  if (action) t.querySelector(".toast-act").onclick = () => { t.remove(); action.fn(); };
   document.body.appendChild(t);
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.remove(), Math.max(bad ? 5000 : 3000, String(msg).length * 110));
@@ -502,6 +509,16 @@ function updateSaveBtn() {
   const has = getText().trim() || state.images.length || state.audios.some((a) => a.keep);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
   $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
+  $("clearBtn").disabled = state.saving || !hasAnyInput();
+}
+// 何か入力されているか（クリアボタンを押せるか）
+function hasAnyInput() {
+  if (getText().trim() || state.images.length || state.audios.length) return true;
+  return Object.entries(state.values).some(([k, v]) => {
+    const p = state.schema?.properties.find((x) => x.name === k);
+    if (!p || p.type === "date") return false;   // 日付は今日が入っているだけなので数えない
+    return Array.isArray(v) ? v.length > 0 : !!v;
+  });
 }
 
 function autoGrow() {
@@ -534,11 +551,11 @@ $("props").addEventListener("click", (e) => {
     } else {
       state.values[p.name] = state.values[p.name] === val ? "" : val;
     }
-    renderProps();
+    renderProps(); updateSaveBtn();
     return;
   }
   const chk = e.target.closest("[data-check]");
-  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); return; }
+  if (chk) { state.values[chk.dataset.check] = !state.values[chk.dataset.check]; renderProps(); updateSaveBtn(); return; }
   if (e.target.closest("#urlToggle")) {
     state.showUrl = !state.showUrl;
     renderProps();
@@ -549,7 +566,7 @@ $("props").addEventListener("change", (e) => {
   if (e.target.dataset.date !== undefined) { state.values[e.target.dataset.date] = e.target.value; renderProps(); }
 });
 $("props").addEventListener("input", (e) => {
-  if (e.target.dataset.url !== undefined) state.values[e.target.dataset.url] = e.target.value;
+  if (e.target.dataset.url !== undefined) { state.values[e.target.dataset.url] = e.target.value; updateSaveBtn(); }
 });
 
 function autoCheckAudio() {
@@ -955,6 +972,29 @@ function resetForm() {
   renderProps(); renderAttachments(); autoGrow();
   $("title").focus();   // 続けて次を書けるように
 }
+
+// ===== クリア（間違えて押しても「元に戻す」で戻せる）=====
+$("clearBtn").onclick = () => {
+  if (!state.schema) return;
+  const snap = {
+    dbId: state.dbId, text: getText(), images: state.images.slice(), audios: state.audios.slice(),
+    values: JSON.parse(JSON.stringify(state.values)), showUrl: state.showUrl,
+  };
+  store.del("qn.draft." + state.dbId);
+  state.images = []; state.audios = []; state.showUrl = false;
+  const keepDates = {};
+  for (const p of state.schema.properties) if (p.type === "date") keepDates[p.name] = state.values[p.name];
+  applySchema(state.schema);
+  Object.assign(state.values, keepDates);
+  renderProps(); renderAttachments(); autoGrow(); updateSaveBtn();
+  toast("クリアしました", false, null, { label: "元に戻す", fn: () => {
+    if (state.dbId !== snap.dbId) return;
+    setText(snap.text);
+    state.images = snap.images; state.audios = snap.audios;
+    state.values = snap.values; state.showUrl = snap.showUrl;
+    renderProps(); renderAttachments(); autoGrow(); updateSaveBtn(); saveDraft();
+  } });
+};
 
 // ===== シート =====
 function openSheet(html) { $("sheetBody").innerHTML = `<div class="grab"></div>` + html; $("sheet").classList.remove("hidden"); }
