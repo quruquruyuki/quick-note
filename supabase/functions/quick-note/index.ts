@@ -220,16 +220,18 @@ async function liveToken(hint: string, keywords: string[]) {
   if (kw.length) transcription.keywords = kw;
   const session = { type: "transcription", audio: { input: { transcription, turn_detection: null } } };
 
-  const call = (s: unknown) => fetch("https://api.openai.com/v1/realtime/client_secrets", {
+  // 一時キーは10分有効にしておく（アプリが先に取っておき、録音ボタンを押したらすぐつなげるように）
+  const call = (s: unknown, withExpiry: boolean) => fetch("https://api.openai.com/v1/realtime/client_secrets", {
     method: "POST",
     headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ session: s }),
+    body: JSON.stringify(withExpiry ? { session: s, expires_after: { anchor: "created_at", seconds: 600 } } : { session: s }),
   });
-  let res = await call(session);
+  let res = await call(session, true);
+  if (!res.ok && res.status === 400) res = await call(session, false);
   if (!res.ok && res.status === 400) {
     // ヒントやキーワードが原因で断られたら、ヒントなしでやり直す
     delete transcription.prompt; delete transcription.keywords;
-    res = await call(session);
+    res = await call(session, false);
   }
   const text = await res.text();
   if (!res.ok) throw new HttpError(502, `リアルタイム文字起こしを開始できません (${res.status}): ${text.slice(0, 300)}`);

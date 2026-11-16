@@ -234,7 +234,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-7";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-8";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -613,7 +613,7 @@ async function startRec() {
   mr.onstop = onRecStop;
   mr.start(1000);
   $("recTime").textContent = "0:00";
-  $("recStatus").textContent = "録音中";
+  setRecLabel();
   $("recLabel").querySelector("i").classList.remove("hidden");
   $("recStop").classList.remove("hidden"); $("recSpin").classList.add("hidden"); $("recCancel").classList.remove("hidden");
   $("recPanel").classList.remove("hidden");
@@ -635,7 +635,62 @@ function stopRec(cancel = false) {
 // 止めたら、その文字をそのまま本文に入れる（ファイルの文字起こしはしない＝二重に料金がかからない）。
 // うまくつながらなかったときは、今までどおり録音ファイルを文字起こしする。
 const live = { pc: null, dc: null, track: null, items: {}, order: [], ok: false, failed: false, reason: "",
-               gotDelta: false, commitTimer: null, startedAt: 0, waiters: [] };
+               gotDelta: false, commitTimer: null, startedAt: 0, waiters: [], missedStart: false, meter: null };
+
+// 一時キーを先に取っておく（録音ボタンを押してからの待ち時間を減らす）
+let liveKey = null;   // { value, at }
+async function prefetchLiveKey() {
+  if (!LIVE_PREVIEW || (liveKey && Date.now() - liveKey.at < 8 * 60 * 1000)) return;
+  try {
+    const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: knownNames().slice(0, 50) });
+    if (value) liveKey = { value, at: Date.now() };
+  } catch {}
+}
+async function takeLiveKey() {
+  const k = liveKey && Date.now() - liveKey.at < 9 * 60 * 1000 ? liveKey.value : null;
+  liveKey = null;
+  setTimeout(prefetchLiveKey, 1500);   // 次の録音のために取り直しておく
+  if (k) return k;
+  const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: knownNames().slice(0, 50) });
+  return value;
+}
+
+// 録音の状態表示：つながるまでは「準備中」、つながったら「話してください」
+function setRecLabel() {
+  const dot = $("recLabel").querySelector("i");
+  if (!LIVE_PREVIEW || live.failed) { $("recStatus").textContent = "録音中"; dot.style.background = ""; return; }
+  if (live.ok) { $("recStatus").textContent = "話してください"; dot.style.background = ""; }
+  else { $("recStatus").textContent = "準備中…"; dot.style.background = "var(--faint)"; }
+}
+
+// つながる前に話し始めたかを、マイクの音量で見張る
+function startMeter(stream) {
+  try {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const ctx = new AC();
+    const src = ctx.createMediaStreamSource(stream);
+    const an = ctx.createAnalyser();
+    an.fftSize = 1024;
+    src.connect(an);
+    const buf = new Float32Array(an.fftSize);
+    let loud = 0;
+    const timer = setInterval(() => {
+      if (live.ok || live.failed) { stopMeter(); return; }
+      an.getFloatTimeDomainData(buf);
+      let sum = 0; for (const v of buf) sum += v * v;
+      const rms = Math.sqrt(sum / buf.length);
+      loud = rms > 0.02 ? loud + 1 : 0;
+      if (loud >= 2) live.missedStart = true;   // 声が出ていた（つながる前の分はリアルタイムでは届かない）
+    }, 80);
+    live.meter = { ctx, timer };
+  } catch {}
+}
+function stopMeter() {
+  if (!live.meter) return;
+  clearInterval(live.meter.timer);
+  try { live.meter.ctx.close(); } catch {}
+  live.meter = null;
+}
 
 function liveText() { return live.order.map((id) => live.items[id] || "").join("").trim(); }
 function renderLive() {
@@ -651,13 +706,13 @@ function liveSend(ev) { try { if (live.dc?.readyState === "open") live.dc.send(J
 
 async function startLive(stream) {
   Object.assign(live, { pc: null, dc: null, track: null, items: {}, order: [], ok: false, failed: false, reason: "",
-                        gotDelta: false, commitTimer: null, startedAt: Date.now(), waiters: [] });
-  renderLive();
+                        gotDelta: false, commitTimer: null, startedAt: Date.now(), waiters: [], missedStart: false });
+  renderLive(); setRecLabel();
   if (!LIVE_PREVIEW) return;
+  startMeter(stream);
   try {
     if (!window.RTCPeerConnection) throw new Error("この画面ではリアルタイム通信が使えません");
-    const names = knownNames();
-    const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: names.slice(0, 50) });
+    const value = await takeLiveKey();
     if (!value) throw new Error("一時キーを受け取れませんでした");
     if (!rec || rec.stream !== stream) return;   // つないでいる間に止められた
     const pc = new RTCPeerConnection();
@@ -668,7 +723,7 @@ async function startLive(stream) {
     live.dc = dc;
     dc.onmessage = (e) => onLiveEvent(JSON.parse(e.data));
     dc.onopen = () => {
-      live.ok = true; renderLive();
+      live.ok = true; stopMeter(); renderLive(); setRecLabel();
       // 区切りなしでは文字が来ないモデルの場合に備え、数秒たっても文字が来なければ一定間隔で区切って送る
       live.commitTimer = setInterval(() => {
         if (!live.gotDelta && Date.now() - live.startedAt > 4000) liveSend({ type: "input_audio_buffer.commit" });
@@ -685,7 +740,7 @@ async function startLive(stream) {
   } catch (err) {
     live.failed = true; live.reason = String(err?.message || err);
     stopLive(true);
-    renderLive();
+    renderLive(); setRecLabel();
   }
 }
 
@@ -728,6 +783,7 @@ async function finishLive() {
   return t;
 }
 function stopLive() {
+  stopMeter();
   clearInterval(live.commitTimer);
   try { live.dc?.close(); } catch {}
   try { live.pc?.close(); } catch {}
@@ -756,8 +812,9 @@ async function onRecStop() {
   const audio = blob && size >= 2000 ? { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT } : null;
   try {
     let text = lt;
-    // リアルタイムが使えなかったときだけ、録音ファイルを文字起こしする
-    if (!text && audio) {
+    // リアルタイムが使えなかったとき、またはつながる前に話し始めていたとき（冒頭が抜けている）は、
+    // 最初から取れている録音ファイルを文字起こしして、それを使う
+    if (audio && (!text || live.missedStart)) {
       $("recStatus").textContent = "AIで文字起こし中…";
       text = (await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() })).text || "";
     }
@@ -1030,6 +1087,7 @@ async function showApp() {
   $("login").classList.add("hidden"); $("app").classList.remove("hidden");
   // キャッシュがあれば先に開いて、裏で一覧を更新
   if (state.defaultId) openDb(state.defaultId);
+  setTimeout(prefetchLiveKey, 2500);
   try {
     await refreshDatabases();
     if (!state.dbId) openDb(state.defaultId);
@@ -1046,7 +1104,7 @@ $("loginForm").addEventListener("submit", async (e) => {
   showApp();
 });
 
-document.addEventListener("visibilitychange", () => { if (document.hidden) saveDraft(); });
+document.addEventListener("visibilitychange", () => { if (document.hidden) saveDraft(); else prefetchLiveKey(); });
 
 (async () => {
   const { data } = await sb.auth.getSession();
