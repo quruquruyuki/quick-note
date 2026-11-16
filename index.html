@@ -234,12 +234,12 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-5";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-6";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
-// 話しながら表示（iPhone標準の音声認識）。iPhoneでは録音とマイクを取り合って録音が無音になるため、いったん止める
-const LIVE_PREVIEW = false;
+// 話しながら表示（OpenAIのリアルタイム文字起こし）。false にすると録音→ファイル文字起こしだけになる
+const LIVE_PREVIEW = true;
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (id) => document.getElementById(id);
@@ -601,10 +601,10 @@ const extOf = (mime) => mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "o
 $("recBtn").onclick = startRec;
 async function startRec() {
   if (!window.MediaRecorder) { toast("このブラウザは録音に対応していません", true); return; }
-  startLive();
   let stream;
-  try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch { stopLive(); toast("マイクの使用が許可されていません（設定 → Safari → マイク）", true); return; }
+  try { stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } }); }
+  catch { toast("マイクの使用が許可されていません（設定 → Safari → マイク）", true); return; }
+  startLive(stream);
   const mime = pickMime();
   const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
   const chunks = [];
@@ -626,61 +626,113 @@ async function startRec() {
 function stopRec(cancel = false) {
   if (!rec || rec.mr.state === "inactive") return;
   rec.cancelled = cancel;
-  stopLive();
+  if (cancel) stopLive(true);
   clearInterval(rec.timer);
   rec.mr.stop();
-  rec.stream.getTracks().forEach((t) => t.stop());
 }
-// ===== 話しながら文字を表示（iPhone標準の音声認識・無料）=====
-// 止めたあとはAIの文字起こしで正確な文章に差し替える。AIが失敗したらこの文字を使う。
-const live = { rec: null, finalText: "", interim: "", on: false, failed: false, reason: "", retried: false };
+// ===== 話しながら文字を表示（OpenAI のリアルタイム文字起こし）=====
+// 録音と同じマイクの音を WebRTC で OpenAI に送り、文字を受け取りながら表示する。
+// 止めたら、その文字をそのまま本文に入れる（ファイルの文字起こしはしない＝二重に料金がかからない）。
+// うまくつながらなかったときは、今までどおり録音ファイルを文字起こしする。
+const live = { pc: null, dc: null, track: null, items: {}, order: [], ok: false, failed: false, reason: "",
+               gotDelta: false, commitTimer: null, startedAt: 0, waiters: [] };
+
+function liveText() { return live.order.map((id) => live.items[id] || "").join("").trim(); }
 function renderLive() {
   const el = $("recLive");
-  el.innerHTML = live.failed && !live.finalText
-    ? `<span class="note">話しながらの表示は使えませんでした（止めると文字起こしされます）<br>理由: ${esc(live.reason || "不明")}</span>`
-    : esc(live.finalText) + (live.interim ? `<span class="interim">${esc(live.interim)}</span>` : "");
+  const t = liveText();
+  if (t) el.innerHTML = esc(t);
+  else if (live.failed) el.innerHTML = `<span class="note">話しながらの表示は使えませんでした（止めると文字起こしされます）<br>理由: ${esc(live.reason || "不明")}</span>`;
+  else if (LIVE_PREVIEW && !live.ok) el.innerHTML = `<span class="note">文字起こしに接続中…</span>`;
+  else el.innerHTML = "";
   el.scrollTop = el.scrollHeight;
 }
-function startLive() {
-  if (!LIVE_PREVIEW) { $("recLive").innerHTML = ""; return; }
-  live.finalText = ""; live.interim = ""; live.failed = false; live.on = true; live.reason = ""; live.retried = false;
-  $("recLive").innerHTML = "";
-  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { live.failed = true; live.reason = "この画面では音声認識の機能がありません"; renderLive(); return; }
-  const run = () => {
-    if (!live.on) return;
-    const r = new SR();
-    r.lang = "ja-JP"; r.continuous = true; r.interimResults = true;
-    r.onresult = (e) => {
-      let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
-        const t = e.results[i][0].transcript;
-        if (e.results[i].isFinal) live.finalText += t; else interim += t;
-      }
-      live.interim = interim;
+function liveSend(ev) { try { if (live.dc?.readyState === "open") live.dc.send(JSON.stringify(ev)); } catch {} }
+
+async function startLive(stream) {
+  Object.assign(live, { pc: null, dc: null, track: null, items: {}, order: [], ok: false, failed: false, reason: "",
+                        gotDelta: false, commitTimer: null, startedAt: Date.now(), waiters: [] });
+  renderLive();
+  if (!LIVE_PREVIEW) return;
+  try {
+    if (!window.RTCPeerConnection) throw new Error("この画面ではリアルタイム通信が使えません");
+    const names = knownNames();
+    const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: names.slice(0, 50) });
+    if (!value) throw new Error("一時キーを受け取れませんでした");
+    if (!rec || rec.stream !== stream) return;   // つないでいる間に止められた
+    const pc = new RTCPeerConnection();
+    live.pc = pc;
+    live.track = stream.getAudioTracks()[0].clone();   // 録音とは別の複製を送る
+    pc.addTrack(live.track);
+    const dc = pc.createDataChannel("oai-events");
+    live.dc = dc;
+    dc.onmessage = (e) => onLiveEvent(JSON.parse(e.data));
+    dc.onopen = () => {
+      live.ok = true; renderLive();
+      // 区切りなしでは文字が来ないモデルの場合に備え、数秒たっても文字が来なければ一定間隔で区切って送る
+      live.commitTimer = setInterval(() => {
+        if (!live.gotDelta && Date.now() - live.startedAt > 4000) liveSend({ type: "input_audio_buffer.commit" });
+      }, 4000);
+    };
+    const offer = await pc.createOffer();
+    await pc.setLocalDescription(offer);
+    const res = await fetch("https://api.openai.com/v1/realtime/calls", {
+      method: "POST", body: offer.sdp,
+      headers: { Authorization: `Bearer ${value}`, "Content-Type": "application/sdp" },
+    });
+    if (!res.ok) throw new Error(`接続エラー (${res.status}) ${(await res.text()).slice(0, 120)}`);
+    await pc.setRemoteDescription({ type: "answer", sdp: await res.text() });
+  } catch (err) {
+    live.failed = true; live.reason = String(err?.message || err);
+    stopLive(true);
+    renderLive();
+  }
+}
+
+function onLiveEvent(ev) {
+  const id = ev.item_id;
+  switch (ev.type) {
+    case "input_audio_buffer.committed":
+      if (id && !live.order.includes(id)) live.order.push(id);
+      break;
+    case "conversation.item.input_audio_transcription.delta":
+      live.gotDelta = true;
+      if (id && !live.order.includes(id)) live.order.push(id);
+      live.items[id] = (live.items[id] || "") + (ev.delta || "");
       renderLive();
-    };
-    r.onerror = (e) => {
-      if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) {
-        // マイクの取り合いの可能性があるので、1回だけ少し待って再挑戦
-        if (!live.retried && e.error === "audio-capture") { live.retried = true; return; }
-        live.failed = true; live.on = false; live.reason = e.error; renderLive();
-      }
-    };
-    // 無音などで止まったら、録音中は自動で再開
-    r.onend = () => {
-      if (live.interim) { live.finalText += live.interim; live.interim = ""; renderLive(); }
-      if (live.on) setTimeout(run, 150);
-    };
-    try { r.start(); live.rec = r; } catch (err) { live.failed = true; live.reason = String(err?.message || err); renderLive(); }
-  };
-  run();
+      break;
+    case "conversation.item.input_audio_transcription.completed":
+      if (id && !live.order.includes(id)) live.order.push(id);
+      live.items[id] = ev.transcript || live.items[id] || "";
+      renderLive();
+      live.waiters.splice(0).forEach((f) => f());
+      break;
+    case "error":
+      console.warn("live error", ev);
+      break;
+  }
+}
+
+// 止めるとき：最後の区切りを送り、仕上がった文字が届くのを少し待ってから切る
+async function finishLive() {
+  if (!live.pc || !live.ok) { stopLive(true); return ""; }
+  liveSend({ type: "input_audio_buffer.commit" });
+  await new Promise((resolve) => {
+    live.waiters.push(resolve);
+    setTimeout(resolve, 5000);
+  });
+  // 届き遅れの分をもう少しだけ待つ
+  await new Promise((r) => setTimeout(r, 400));
+  const t = liveText();
+  stopLive(true);
+  return t;
 }
 function stopLive() {
-  live.on = false;
-  try { live.rec?.stop(); } catch {}
-  if (live.interim) { live.finalText += live.interim; live.interim = ""; }
-  renderLive();
+  clearInterval(live.commitTimer);
+  try { live.dc?.close(); } catch {}
+  try { live.pc?.close(); } catch {}
+  try { live.track?.stop(); } catch {}
+  live.pc = null; live.dc = null; live.track = null;
 }
 
 $("recStop").onclick = () => stopRec(false);
@@ -689,39 +741,38 @@ $("recCancel").onclick = () => stopRec(true);
 async function onRecStop() {
   const r = rec;
   const sec = (Date.now() - r.start) / 1000;
-  if (r.cancelled) { $("recPanel").classList.add("hidden"); rec = null; return; }
-  const liveText = live.finalText.trim();
-  // マイクを同時に使えず録音が空だった場合は、表示していた文字をそのまま使う
-  if (!r.chunks.length || r.chunks.reduce((n, c) => n + c.size, 0) < 2000) {
-    if (liveText) placeTranscript(liveText);
-    else toast("録音できませんでした。もう一度お試しください", true);
-    $("recPanel").classList.add("hidden"); rec = null; return;
-  }
-  const mime = (r.mr.mimeType || r.chunks[0].type || "audio/mp4");
-  const ext = extOf(mime);
-  const blob = new Blob(r.chunks, { type: mime.split(";")[0] });
+  if (r.cancelled) { stopLive(); r.stream.getTracks().forEach((t) => t.stop()); $("recPanel").classList.add("hidden"); rec = null; return; }
   $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
   $("recLabel").querySelector("i").classList.add("hidden");
-  $("recStatus").textContent = "AIで仕上げ中…";
-  const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
+  $("recStatus").textContent = "仕上げ中…";
+  // リアルタイムの文字を受け取りきってから、マイクを止める
+  const lt = await finishLive();
+  r.stream.getTracks().forEach((t) => t.stop());
+
+  const size = r.chunks.reduce((n, c) => n + c.size, 0);
+  const mime = (r.mr.mimeType || r.chunks[0]?.type || "audio/mp4");
+  const ext = extOf(mime);
+  const blob = size ? new Blob(r.chunks, { type: mime.split(";")[0] }) : null;
+  const audio = blob && size >= 2000 ? { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT } : null;
   try {
-    const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() });
-    if (!(text || liveText).trim()) {
+    let text = lt;
+    // リアルタイムが使えなかったときだけ、録音ファイルを文字起こしする
+    if (!text && audio) {
+      $("recStatus").textContent = "AIで文字起こし中…";
+      text = (await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() })).text || "";
+    }
+    if (!text.trim()) {
       toast("声を聞き取れませんでした。マイクが使えているか確認して、もう一度録音してください", true);
-      $("recPanel").classList.add("hidden"); rec = null;
       return;
     }
-    placeTranscript(text || liveText);
-    state.audios.push(audio);
-    autoCheckAudio();
+    placeTranscript(text);
+    if (audio) { state.audios.push(audio); autoCheckAudio(); }
     renderAttachments(); renderProps(); updateSaveBtn();
   } catch (e) {
-    // 文字起こしに失敗しても録音は残す。話しながら表示した文字があればそれを使う
-    audio.text = false;
-    state.audios.push(audio);
-    if (liveText) { placeTranscript(liveText); autoCheckAudio(); renderProps(); }
+    // 文字起こしに失敗しても録音は残す
+    if (audio) { audio.text = false; state.audios.push(audio); }
     renderAttachments(); updateSaveBtn();
-    toast(liveText ? "AIの文字起こしに失敗したので、話しながら表示した文字を入れました" : "文字起こしに失敗しました: " + e.message, true);
+    toast("文字起こしに失敗しました: " + e.message, true);
   } finally {
     $("recPanel").classList.add("hidden");
     rec = null;

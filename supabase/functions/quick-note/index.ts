@@ -6,7 +6,9 @@
 //   OPENAI_API_KEY   … OpenAI のキー（sk-...）
 //   ALLOWED_EMAIL    … このアプリを使えるログイン用メールアドレス
 // 任意:
-//   TRANSCRIBE_MODEL … 文字起こしモデル。既定は gpt-transcribe
+//   TRANSCRIBE_MODEL      … 録音ファイルの文字起こしモデル。既定は gpt-transcribe
+//   LIVE_TRANSCRIBE_MODEL … 話しながらの文字起こしモデル。既定は gpt-live-transcribe
+//   （安いモデルが出たら、ここを Supabase の Secrets で差し替えるだけで移行できる）
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -24,6 +26,7 @@ const OPENAI_API_KEY = env("OPENAI_API_KEY", "OPENAI_KEY");
 const ALLOWED_EMAIL = env("ALLOWED_EMAIL").toLowerCase();
 const TRANSCRIBE_MODEL = env("TRANSCRIBE_MODEL") || "gpt-transcribe";
 const FALLBACK_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
+const LIVE_TRANSCRIBE_MODEL = env("LIVE_TRANSCRIBE_MODEL") || "gpt-live-transcribe";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const NOTION_VERSION = "2022-06-28";
@@ -204,6 +207,36 @@ async function transcribe(file: File, hint = "") {
   throw new HttpError(502, "文字起こしが混み合っています。少し待ってもう一度お試しください");
 }
 
+// ── 話しながらの文字起こし用の一時キー（ブラウザが OpenAI に直接つなぐため。本物のキーは渡さない）──
+async function liveToken(hint: string, keywords: string[]) {
+  // キーワードは1行・< > を含まないものだけ（含むと OpenAI に拒否される）
+  const kw = keywords.map((k) => String(k).trim()).filter((k) => k && k.length <= 40 && !/[<>\r\n]/.test(k)).slice(0, 50);
+  const transcription: Record<string, unknown> = {
+    model: LIVE_TRANSCRIBE_MODEL,
+    languages: ["ja"],
+    delay: "low",
+  };
+  if (hint) transcription.prompt = hint.replace(/[\r\n]+/g, " ").slice(0, 400);
+  if (kw.length) transcription.keywords = kw;
+  const session = { type: "transcription", audio: { input: { transcription, turn_detection: null } } };
+
+  const call = (s: unknown) => fetch("https://api.openai.com/v1/realtime/client_secrets", {
+    method: "POST",
+    headers: { "Authorization": `Bearer ${OPENAI_API_KEY}`, "Content-Type": "application/json" },
+    body: JSON.stringify({ session: s }),
+  });
+  let res = await call(session);
+  if (!res.ok && res.status === 400) {
+    // ヒントやキーワードが原因で断られたら、ヒントなしでやり直す
+    delete transcription.prompt; delete transcription.keywords;
+    res = await call(session);
+  }
+  const text = await res.text();
+  if (!res.ok) throw new HttpError(502, `リアルタイム文字起こしを開始できません (${res.status}): ${text.slice(0, 300)}`);
+  const data = JSON.parse(text);
+  return { value: data.value ?? data.client_secret?.value, model: LIVE_TRANSCRIBE_MODEL };
+}
+
 // ── 保存 ──
 function richText(text: string, size = 1900) {
   const chunks: string[] = [];
@@ -365,6 +398,9 @@ Deno.serve(async (req) => {
         return json(await getSchema(body.databaseId));
       case "save":
         return json(await save(body));
+      case "live_token":
+        need(["OPENAI_API_KEY", OPENAI_API_KEY]);
+        return json(await liveToken(String(body.prompt ?? ""), Array.isArray(body.keywords) ? body.keywords : []));
       case "titles":
         return json({ titles: await titles(body.databaseId) });
       case "recent":
