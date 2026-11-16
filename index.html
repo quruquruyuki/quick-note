@@ -234,7 +234,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-3";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-4";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -599,9 +599,10 @@ const extOf = (mime) => mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "o
 $("recBtn").onclick = startRec;
 async function startRec() {
   if (!window.MediaRecorder) { toast("このブラウザは録音に対応していません", true); return; }
+  startLive();
   let stream;
   try { stream = await navigator.mediaDevices.getUserMedia({ audio: true }); }
-  catch { toast("マイクの使用が許可されていません（設定 → Safari → マイク）", true); return; }
+  catch { stopLive(); toast("マイクの使用が許可されていません（設定 → Safari → マイク）", true); return; }
   const mime = pickMime();
   const mr = new MediaRecorder(stream, mime ? { mimeType: mime, audioBitsPerSecond: 48000 } : undefined);
   const chunks = [];
@@ -609,7 +610,6 @@ async function startRec() {
   mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   mr.onstop = onRecStop;
   mr.start(1000);
-  startLive();
   $("recTime").textContent = "0:00";
   $("recStatus").textContent = "録音中";
   $("recLabel").querySelector("i").classList.remove("hidden");
@@ -631,19 +631,19 @@ function stopRec(cancel = false) {
 }
 // ===== 話しながら文字を表示（iPhone標準の音声認識・無料）=====
 // 止めたあとはAIの文字起こしで正確な文章に差し替える。AIが失敗したらこの文字を使う。
-const live = { rec: null, finalText: "", interim: "", on: false, failed: false };
+const live = { rec: null, finalText: "", interim: "", on: false, failed: false, reason: "", retried: false };
 function renderLive() {
   const el = $("recLive");
   el.innerHTML = live.failed && !live.finalText
-    ? `<span class="note">話しながらの表示は使えませんでした（止めると文字起こしされます）</span>`
+    ? `<span class="note">話しながらの表示は使えませんでした（止めると文字起こしされます）<br>理由: ${esc(live.reason || "不明")}</span>`
     : esc(live.finalText) + (live.interim ? `<span class="interim">${esc(live.interim)}</span>` : "");
   el.scrollTop = el.scrollHeight;
 }
 function startLive() {
-  live.finalText = ""; live.interim = ""; live.failed = false; live.on = true;
+  live.finalText = ""; live.interim = ""; live.failed = false; live.on = true; live.reason = ""; live.retried = false;
   $("recLive").innerHTML = "";
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SR) { live.failed = true; renderLive(); return; }
+  if (!SR) { live.failed = true; live.reason = "この画面では音声認識の機能がありません"; renderLive(); return; }
   const run = () => {
     if (!live.on) return;
     const r = new SR();
@@ -658,14 +658,18 @@ function startLive() {
       renderLive();
     };
     r.onerror = (e) => {
-      if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) { live.failed = true; live.on = false; renderLive(); }
+      if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) {
+        // マイクの取り合いの可能性があるので、1回だけ少し待って再挑戦
+        if (!live.retried && e.error === "audio-capture") { live.retried = true; return; }
+        live.failed = true; live.on = false; live.reason = e.error; renderLive();
+      }
     };
     // 無音などで止まったら、録音中は自動で再開
     r.onend = () => {
       if (live.interim) { live.finalText += live.interim; live.interim = ""; renderLive(); }
       if (live.on) setTimeout(run, 150);
     };
-    try { r.start(); live.rec = r; } catch { live.failed = true; renderLive(); }
+    try { r.start(); live.rec = r; } catch (err) { live.failed = true; live.reason = String(err?.message || err); renderLive(); }
   };
   run();
 }
