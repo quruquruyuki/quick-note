@@ -234,7 +234,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-6";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-7";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -939,7 +939,21 @@ function onType() {
   autoGrow(); updateSaveBtn();
   clearTimeout(draftTimer); draftTimer = setTimeout(saveDraft, 400);
 }
-$("title").addEventListener("input", onType);
+// 1行目に改行が入ったら（音声入力・貼り付け・予測変換など、改行キー以外で入った場合も）、改行より後ろは本文の先頭へ移す
+$("title").addEventListener("input", () => {
+  const t = $("title");
+  if (t.value.includes("\n")) {
+    const [first, ...rest] = t.value.replace(/\r/g, "").split("\n");
+    const tail = rest.join("\n").replace(/^\n+/, "");
+    t.value = first;
+    const b = $("body");
+    if (tail) b.value = b.value ? tail + "\n" + b.value : tail;
+    b.focus();
+    const pos = tail.length;
+    b.setSelectionRange(pos, pos);
+  }
+  onType();
+});
 $("body").addEventListener("input", onType);
 // 1行目で改行 → 2行目（本文）へ
 $("title").addEventListener("keydown", (e) => {
