@@ -260,14 +260,17 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-13";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-14";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
 const MAX_REC_SEC = 5 * 60;                // 録音は最長5分（残り30秒で知らせる）
 const SILENCE_STOP_SEC = 30;               // 30秒しゃべらなかったら自動で止める
-// ── 料金の目安（OpenAI の公開価格。1ドル=150円で計算）──
-const YEN_PER_USD = 150;
+// ── 料金の目安（OpenAI の公開価格）──
+// 為替レートは全アプリ共通の設定（Supabase の app_settings / global / usd_jpy、毎日自動更新）から読む。
+// 読めないときは前回の値、それもなければ 155円で計算する
+let YEN_PER_USD = 155;
+try { const c = JSON.parse(localStorage.getItem("shared-usd-jpy") || "null"); if (c?.v) YEN_PER_USD = c.v; } catch {}
 const PRICE_LIVE_PER_MIN = 0.017;          // gpt-live-transcribe
 const PRICE_FILE_PER_MIN = 0.0045;         // gpt-transcribe
 const yen = (sec, perMin) => (sec / 60) * perMin * YEN_PER_USD;
@@ -1231,7 +1234,7 @@ function renderSettings() {
     <div class="sep"></div>
     <h2>今月の文字起こし料金（目安）</h2>
     ${(() => { const u = usageSummary(); return `<p class="muted" style="font-size:var(--fs);color:var(--ink)">約${fmtYen(u.total)}</p>
-      <p class="muted">リアルタイム ${u.liveMin.toFixed(1)}分 ／ 録音ファイル ${u.fileMin.toFixed(1)}分<br>この端末で使った分だけの目安です（1ドル=${YEN_PER_USD}円で計算）。正確な金額はOpenAIの管理画面で確認できます。</p>`; })()}
+      <p class="muted">リアルタイム ${u.liveMin.toFixed(1)}分 ／ 録音ファイル ${u.fileMin.toFixed(1)}分<br>この端末で使った分だけの目安です（1ドル=${YEN_PER_USD}円で計算・全アプリ共通のレート）。正確な金額はOpenAIの管理画面で確認できます。</p>`; })()}
     <p class="muted" style="text-align:center">Notion Quick ${APP_VERSION}</p>`);
 }
 
@@ -1410,13 +1413,24 @@ async function showApp() {
   } catch (e) { if (!isNetErr(e)) toast("一覧を取得できません: " + e.message, true); }
 }
 
+// 全アプリ共通の為替レートを読む（ログイン後）
+async function loadRate() {
+  try {
+    const { data, error } = await sb.from("app_settings").select("value, updated_at").eq("app", "global").eq("key", "usd_jpy").maybeSingle();
+    const v = Number(data?.value);
+    if (error || !(v > 0)) return;
+    YEN_PER_USD = v;
+    localStorage.setItem("shared-usd-jpy", JSON.stringify({ v, at: data.updated_at }));
+  } catch {}
+}
+
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   $("loginBtn").disabled = true; $("loginErr").textContent = "";
   const { error } = await sb.auth.signInWithPassword({ email: $("email").value.trim(), password: $("password").value });
   $("loginBtn").disabled = false;
   if (error) { $("loginErr").textContent = "ログインできませんでした（" + error.message + "）"; return; }
-  showApp();
+  showApp(); loadRate();
 });
 
 document.addEventListener("visibilitychange", () => {
@@ -1434,7 +1448,7 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
 
 (async () => {
   const { data } = await sb.auth.getSession();
-  if (data.session) showApp(); else showLogin();
+  if (data.session) { showApp(); loadRate(); } else showLogin();
 })();
 </script>
 </body>
