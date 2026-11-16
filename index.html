@@ -152,6 +152,8 @@
   .item { display: flex; align-items: center; gap: 12px; padding: 13px 12px; border-radius: 8px; width: 100%; text-align: left; color: var(--ink2); text-decoration: none; font-size: var(--fs); }
   .item:active { background: var(--hover); }
   .item .ic { width: 22px; text-align: center; color: var(--sub); }
+  .item[data-mode] .t, .item .t .s { white-space: normal; }
+  .item[data-mode] .t .s { display: block; margin-top: 2px; }
   .item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .s { color: var(--faint); font-size: var(--fs-sub); white-space: nowrap; }
   .item .check { color: var(--ink); }
@@ -242,7 +244,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-10";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-11";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -254,8 +256,10 @@ const PRICE_LIVE_PER_MIN = 0.017;          // gpt-live-transcribe
 const PRICE_FILE_PER_MIN = 0.0045;         // gpt-transcribe
 const yen = (sec, perMin) => (sec / 60) * perMin * YEN_PER_USD;
 const fmtYen = (v) => v < 0.1 ? "0.1円未満" : v < 10 ? v.toFixed(1) + "円" : Math.round(v) + "円";
-// 話しながら表示（OpenAIのリアルタイム文字起こし）。false にすると録音→ファイル文字起こしだけになる
-const LIVE_PREVIEW = true;
+// 録音のしかた（設定で切り替え・端末に保存）
+//   true  … 話しながら文字を表示（OpenAI のリアルタイム文字起こし。約2.6円/分）
+//   false … 録音だけして、止めたら文字起こし（約0.7円/分）
+const isLiveMode = () => store.get("qn.liveMode") !== false;
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (id) => document.getElementById(id);
@@ -650,8 +654,10 @@ async function startRec() {
     $("recTime").textContent = mmss(sec);
     const left = MAX_REC_SEC - sec;
     const liveSec = live.okAt ? (Date.now() - live.okAt) / 1000 : 0;
-    $("recCost").textContent = (left <= 30 ? `あと${Math.ceil(left)}秒で自動で止まります　` : "")
-      + (liveSec ? `文字起こし 約${fmtYen(yen(liveSec, PRICE_LIVE_PER_MIN))}` : "");
+    const costText = isLiveMode()
+      ? (liveSec ? `文字起こし 約${fmtYen(yen(liveSec, PRICE_LIVE_PER_MIN))}` : "")
+      : `止めたあと文字起こし 約${fmtYen(yen(sec, PRICE_FILE_PER_MIN))}`;
+    $("recCost").textContent = (left <= 30 ? `あと${Math.ceil(left)}秒で自動で止まります　` : "") + costText;
     $("recCost").classList.toggle("warn", left <= 30);
     if (sec >= MAX_REC_SEC) { rec.autoStopped = `${MAX_REC_SEC / 60}分たったので、自動で止めました`; stopRec(); }
   }, 250);
@@ -673,7 +679,7 @@ const live = { pc: null, dc: null, track: null, items: {}, order: [], ok: false,
 // 一時キーを先に取っておく（録音ボタンを押してからの待ち時間を減らす）
 let liveKey = null;   // { value, at }
 async function prefetchLiveKey() {
-  if (!LIVE_PREVIEW || (liveKey && Date.now() - liveKey.at < 8 * 60 * 1000)) return;
+  if (!isLiveMode() || (liveKey && Date.now() - liveKey.at < 8 * 60 * 1000)) return;
   try {
     const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: knownNames().slice(0, 50) });
     if (value) liveKey = { value, at: Date.now() };
@@ -705,7 +711,7 @@ function usageSummary() {
 // 録音の状態表示：つながるまでは「準備中」、つながったら「話してください」
 function setRecLabel() {
   const dot = $("recLabel").querySelector("i");
-  if (!LIVE_PREVIEW || live.failed) { $("recStatus").textContent = "録音中"; dot.style.background = ""; return; }
+  if (!isLiveMode() || live.failed) { $("recStatus").textContent = "録音中"; dot.style.background = ""; return; }
   if (live.ok) { $("recStatus").textContent = "話してください"; dot.style.background = ""; }
   else { $("recStatus").textContent = "準備中…"; dot.style.background = "var(--faint)"; }
 }
@@ -730,7 +736,7 @@ function startMeter(stream) {
       if (loud >= 2) {
         live.lastVoiceAt = Date.now();
         // つながる前に声が出ていた（その分はリアルタイムでは届かない）
-        if (LIVE_PREVIEW && !live.ok && !live.failed) live.missedStart = true;
+        if (isLiveMode() && !live.ok && !live.failed) live.missedStart = true;
       }
       // しゃべらない時間が続いたら、録音しっぱなしを防ぐため自動で止める
       if (rec && Date.now() - live.lastVoiceAt > SILENCE_STOP_SEC * 1000) {
@@ -754,7 +760,7 @@ function renderLive() {
   const t = liveText();
   if (t) el.innerHTML = esc(t);
   else if (live.failed) el.innerHTML = `<span class="note">話しながらの表示は使えませんでした（止めると文字起こしされます）<br>理由: ${esc(live.reason || "不明")}</span>`;
-  else if (LIVE_PREVIEW && !live.ok) el.innerHTML = `<span class="note">文字起こしに接続中…</span>`;
+  else if (isLiveMode() && !live.ok) el.innerHTML = `<span class="note">文字起こしに接続中…</span>`;
   else el.innerHTML = "";
   el.scrollTop = el.scrollHeight;
 }
@@ -766,7 +772,7 @@ async function startLive(stream) {
                         okAt: 0, liveSec: 0 });
   renderLive(); setRecLabel();
   startMeter(stream);
-  if (!LIVE_PREVIEW) return;
+  if (!isLiveMode()) return;
   try {
     if (!window.RTCPeerConnection) throw new Error("この画面ではリアルタイム通信が使えません");
     const value = await takeLiveKey();
@@ -1014,6 +1020,13 @@ $("dbBtn").onclick = () => {
 $("sheetBody").addEventListener("click", (e) => {
   const pick = e.target.closest("[data-pick]");
   if (pick) { closeSheet(); openDb(pick.dataset.pick); return; }
+  const md = e.target.closest("[data-mode]");
+  if (md) {
+    store.set("qn.liveMode", md.dataset.mode === "live");
+    if (isLiveMode()) prefetchLiveKey(); else liveKey = null;
+    renderSettings();
+    return;
+  }
   const dd = e.target.closest("[data-dict-del]");
   if (dd) { const list = getDict(); list.splice(+dd.dataset.dictDel, 1); store.set("qn.dict", list); renderSettings(); return; }
   if (e.target.closest("#dictAdd")) {
@@ -1065,6 +1078,12 @@ function renderSettings() {
     <div class="sep"></div>
     <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
     <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>
+    <div class="sep"></div>
+    <h2>録音のしかた</h2>
+    <button class="item" data-mode="live"><span class="ic">${isLiveMode() ? "●" : "○"}</span>
+      <span class="t">話しながら文字を表示<br><span class="s">約${fmtYen(PRICE_LIVE_PER_MIN * YEN_PER_USD)}/分・確認しながら話せる</span></span></button>
+    <button class="item" data-mode="file"><span class="ic">${isLiveMode() ? "○" : "●"}</span>
+      <span class="t">録音だけ・止めたら文字起こし<br><span class="s">約${fmtYen(PRICE_FILE_PER_MIN * YEN_PER_USD)}/分・安い（話している間は文字が出ない）</span></span></button>
     <div class="sep"></div>
     <h2>今月の文字起こし料金（目安）</h2>
     ${(() => { const u = usageSummary(); return `<p class="muted" style="font-size:var(--fs);color:var(--ink)">約${fmtYen(u.total)}</p>
