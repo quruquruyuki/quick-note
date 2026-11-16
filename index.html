@@ -128,6 +128,10 @@
   #recPanel { position: fixed; inset: 0; z-index: 20; background: #fff; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 26px; }
   #recLabel { display: flex; align-items: center; gap: 8px; color: var(--sub); font-size: var(--fs); }
   #recLabel i { width: 8px; height: 8px; border-radius: 50%; background: var(--red); animation: blink 1.2s infinite; }
+  #recLive { width: calc(100% - 40px); max-width: 640px; max-height: 38vh; overflow-y: auto; font-size: 17px; line-height: 1.5; color: var(--ink); white-space: pre-wrap; text-align: left; }
+  #recLive:empty { display: none; }
+  #recLive .interim { color: var(--faint); }
+  #recLive .note { color: var(--faint); font-size: var(--fs-sub); }
   #recTime { font-size: 56px; font-weight: 300; color: var(--ink); font-variant-numeric: tabular-nums; letter-spacing: -.02em; }
   #recStop { width: 96px; height: 96px; border-radius: 50%; border: 1.5px solid var(--line); display: flex; align-items: center; justify-content: center; }
   #recStop span { width: 32px; height: 32px; border-radius: 5px; background: var(--ink); }
@@ -216,6 +220,7 @@
 <div id="recPanel" class="hidden">
   <div id="recLabel"><i></i><span id="recStatus">録音中</span></div>
   <div id="recTime">0:00</div>
+  <div id="recLive"></div>
   <button id="recStop" aria-label="停止"><span></span></button>
   <div class="spinner hidden" id="recSpin"></div>
   <button id="recCancel">キャンセル</button>
@@ -229,7 +234,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-2";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-3";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -604,6 +609,7 @@ async function startRec() {
   mr.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   mr.onstop = onRecStop;
   mr.start(1000);
+  startLive();
   $("recTime").textContent = "0:00";
   $("recStatus").textContent = "録音中";
   $("recLabel").querySelector("i").classList.remove("hidden");
@@ -618,47 +624,107 @@ async function startRec() {
 function stopRec(cancel = false) {
   if (!rec || rec.mr.state === "inactive") return;
   rec.cancelled = cancel;
+  stopLive();
   clearInterval(rec.timer);
   rec.mr.stop();
   rec.stream.getTracks().forEach((t) => t.stop());
 }
+// ===== 話しながら文字を表示（iPhone標準の音声認識・無料）=====
+// 止めたあとはAIの文字起こしで正確な文章に差し替える。AIが失敗したらこの文字を使う。
+const live = { rec: null, finalText: "", interim: "", on: false, failed: false };
+function renderLive() {
+  const el = $("recLive");
+  el.innerHTML = live.failed && !live.finalText
+    ? `<span class="note">話しながらの表示は使えませんでした（止めると文字起こしされます）</span>`
+    : esc(live.finalText) + (live.interim ? `<span class="interim">${esc(live.interim)}</span>` : "");
+  el.scrollTop = el.scrollHeight;
+}
+function startLive() {
+  live.finalText = ""; live.interim = ""; live.failed = false; live.on = true;
+  $("recLive").innerHTML = "";
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { live.failed = true; renderLive(); return; }
+  const run = () => {
+    if (!live.on) return;
+    const r = new SR();
+    r.lang = "ja-JP"; r.continuous = true; r.interimResults = true;
+    r.onresult = (e) => {
+      let interim = "";
+      for (let i = e.resultIndex; i < e.results.length; i++) {
+        const t = e.results[i][0].transcript;
+        if (e.results[i].isFinal) live.finalText += t; else interim += t;
+      }
+      live.interim = interim;
+      renderLive();
+    };
+    r.onerror = (e) => {
+      if (["not-allowed", "service-not-allowed", "audio-capture"].includes(e.error)) { live.failed = true; live.on = false; renderLive(); }
+    };
+    // 無音などで止まったら、録音中は自動で再開
+    r.onend = () => {
+      if (live.interim) { live.finalText += live.interim; live.interim = ""; renderLive(); }
+      if (live.on) setTimeout(run, 150);
+    };
+    try { r.start(); live.rec = r; } catch { live.failed = true; renderLive(); }
+  };
+  run();
+}
+function stopLive() {
+  live.on = false;
+  try { live.rec?.stop(); } catch {}
+  if (live.interim) { live.finalText += live.interim; live.interim = ""; }
+  renderLive();
+}
+
 $("recStop").onclick = () => stopRec(false);
 $("recCancel").onclick = () => stopRec(true);
 
 async function onRecStop() {
   const r = rec;
   const sec = (Date.now() - r.start) / 1000;
-  if (r.cancelled || !r.chunks.length) { $("recPanel").classList.add("hidden"); rec = null; return; }
+  if (r.cancelled) { $("recPanel").classList.add("hidden"); rec = null; return; }
+  const liveText = live.finalText.trim();
+  // マイクを同時に使えず録音が空だった場合は、表示していた文字をそのまま使う
+  if (!r.chunks.length || r.chunks.reduce((n, c) => n + c.size, 0) < 2000) {
+    if (liveText) placeTranscript(liveText);
+    else toast("録音できませんでした。もう一度お試しください", true);
+    $("recPanel").classList.add("hidden"); rec = null; return;
+  }
   const mime = (r.mr.mimeType || r.chunks[0].type || "audio/mp4");
   const ext = extOf(mime);
   const blob = new Blob(r.chunks, { type: mime.split(";")[0] });
   $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
   $("recLabel").querySelector("i").classList.add("hidden");
-  $("recStatus").textContent = "文字起こし中…";
+  $("recStatus").textContent = "AIで仕上げ中…";
   const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
   try {
     const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() });
-    const fixed = applyDict(text);
-    if (!$("title").value.trim()) {
-      // 1行目が空なら、施設名と本文に分けて入れる
-      const { title, body } = splitTitle(fixed);
-      $("title").value = title;
-      insertText(body);
-    } else {
-      insertText(fixed);
-    }
+    placeTranscript(text || liveText);
     state.audios.push(audio);
     autoCheckAudio();
     renderAttachments(); renderProps(); updateSaveBtn();
   } catch (e) {
-    // 文字起こしに失敗しても録音は残す
+    // 文字起こしに失敗しても録音は残す。話しながら表示した文字があればそれを使う
     audio.text = false;
     state.audios.push(audio);
+    if (liveText) { placeTranscript(liveText); autoCheckAudio(); renderProps(); }
     renderAttachments(); updateSaveBtn();
-    toast("文字起こしに失敗しました: " + e.message, true);
+    toast(liveText ? "AIの文字起こしに失敗したので、話しながら表示した文字を入れました" : "文字起こしに失敗しました: " + e.message, true);
   } finally {
     $("recPanel").classList.add("hidden");
     rec = null;
+  }
+}
+
+// 文字起こし結果を入れる（辞書で読み替え→1行目が空なら施設名と本文に分ける）
+function placeTranscript(text) {
+  const fixed = applyDict(text);
+  if (!$("title").value.trim()) {
+    const { title, body } = splitTitle(fixed);
+    $("title").value = title;
+    insertText(body);
+  } else {
+    insertText(fixed);
   }
 }
 
