@@ -234,10 +234,12 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-4";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-5";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
+// 話しながら表示（iPhone標準の音声認識）。iPhoneでは録音とマイクを取り合って録音が無音になるため、いったん止める
+const LIVE_PREVIEW = false;
 
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 const $ = (id) => document.getElementById(id);
@@ -640,6 +642,7 @@ function renderLive() {
   el.scrollTop = el.scrollHeight;
 }
 function startLive() {
+  if (!LIVE_PREVIEW) { $("recLive").innerHTML = ""; return; }
   live.finalText = ""; live.interim = ""; live.failed = false; live.on = true; live.reason = ""; live.retried = false;
   $("recLive").innerHTML = "";
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -703,6 +706,11 @@ async function onRecStop() {
   const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
   try {
     const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() });
+    if (!(text || liveText).trim()) {
+      toast("声を聞き取れませんでした。マイクが使えているか確認して、もう一度録音してください", true);
+      $("recPanel").classList.add("hidden"); rec = null;
+      return;
+    }
     placeTranscript(text || liveText);
     state.audios.push(audio);
     autoCheckAudio();
