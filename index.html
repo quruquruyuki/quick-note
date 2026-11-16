@@ -152,6 +152,9 @@
   .star.on { color: var(--ink); }
   .toggle { width: 22px; height: 22px; accent-color: #191919; }
   .muted { color: var(--sub); font-size: var(--fs-sub); margin: 6px 10px 10px; line-height: 1.6; }
+  .dict-add { display: grid; gap: 8px; margin: 4px 10px 8px; }
+  .dict-add input { width: 100%; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); outline: none; }
+  .del-dict { color: var(--faint); padding: 6px; }
   .sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
   .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 92px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 10px; font-size: var(--fs-sub); max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
@@ -226,7 +229,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-1";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-2";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -289,17 +292,68 @@ async function api(body) {
   }
   return data;
 }
-function apiFile(action, file, name) {
+function apiFile(action, file, name, extra = {}) {
   const fd = new FormData();
   fd.append("action", action);
   fd.append("file", file, name || file.name || "file");
+  for (const [k, v] of Object.entries(extra)) if (v) fd.append(k, v);
   return api(fd);
 }
 
 // タイトル欄と本文欄を「1行目＋2行目以降」の1つの文字列として扱う
+// タイトルが空でも本文は本文のまま扱う（本文の1行目がタイトルに化けないように）
 function getText() {
   const t = $("title").value.trim(), b = $("body").value;
-  return t ? t + (b ? "\n" + b : "") : b;
+  return b.trim() ? t + "\n" + b : t;
+}
+
+// ===== 読み替え辞書（例: 矢原クリニック → やはらクリニック）=====
+const getDict = () => (store.get("qn.dict") || []).filter((d) => d && d.from && d.to);
+function applyDict(s) {
+  let out = String(s ?? "");
+  // 長い語から置き換える（短い語が先に当たって崩れないように）
+  for (const d of getDict().sort((a, b) => b.from.length - a.from.length)) out = out.split(d.from).join(d.to);
+  return out;
+}
+
+// ===== 施設名の候補（日報DBの過去のタイトル）=====
+function knownNames() {
+  const raw = store.get("qn.titles." + state.dbId) || [];
+  const names = [...new Set([...raw.map((x) => applyDict(x.name)), ...getDict().map((d) => d.to)])];
+  return names.filter((n) => n && n.length <= 40);
+}
+async function refreshNames(id) {
+  try {
+    const { titles } = await api({ action: "titles", databaseId: id });
+    store.set("qn.titles." + id, titles);
+  } catch {}
+}
+// 文字起こしのヒント（よく行く施設名ほど先に）
+const transcribeHint = () => {
+  const names = knownNames().slice(0, 60);
+  return names.length ? "施設名: " + names.join("、") + "。" : "";
+};
+
+// 話した内容を「施設名」と「本文」に分ける
+//  1) 冒頭が過去の施設名と一致したら、そこで区切る（長い名前を優先）
+//  2) 一致しなければ、最初の「。」までをタイトルにする（30文字以内のとき）
+//  3) どちらでもなければ、全部を本文にする
+function splitTitle(text) {
+  const t = String(text || "").trim();
+  const squash = (s) => s.replace(/[\s　]/g, "");
+  const flat = squash(t);
+  const names = knownNames().sort((a, b) => b.length - a.length);
+  for (const name of names) {
+    const n = squash(name);
+    if (!n || !flat.startsWith(n)) continue;
+    // 空白を飛ばしながら、元の文章のどこまでが施設名かを数える
+    let i = 0, k = 0;
+    while (i < t.length && k < n.length) { if (!/[\s　]/.test(t[i])) k++; i++; }
+    return { title: name, body: t.slice(i).replace(/^[\s　。、,.．，:：]+/, "") };
+  }
+  const m = t.match(/^(.{1,30}?)[\s　]*[。．.](.*)$/s);
+  if (m) return { title: m[1].trim(), body: m[2].replace(/^[\s　]+/, "") };
+  return { title: "", body: t };
 }
 function setText(s) {
   const lines = String(s || "").split("\n");
@@ -346,6 +400,7 @@ async function openDb(id) {
   $("dbIcon").innerHTML = dbIconHtml(meta);
   $("dbName").textContent = meta?.title || cached?.title || "…";
   if (cached) applySchema(cached);
+  refreshNames(id);
   try {
     const fresh = await api({ action: "schema", databaseId: id });
     store.set("qn.schema." + id, fresh);
@@ -582,8 +637,16 @@ async function onRecStop() {
   $("recStatus").textContent = "文字起こし中…";
   const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
   try {
-    const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`);
-    insertText(text);
+    const { text } = await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() });
+    const fixed = applyDict(text);
+    if (!$("title").value.trim()) {
+      // 1行目が空なら、施設名と本文に分けて入れる
+      const { title, body } = splitTitle(fixed);
+      $("title").value = title;
+      insertText(body);
+    } else {
+      insertText(fixed);
+    }
     state.audios.push(audio);
     autoCheckAudio();
     renderAttachments(); renderProps(); updateSaveBtn();
@@ -599,11 +662,11 @@ async function onRecStop() {
   }
 }
 
+// 本文の最後に追記する
 function insertText(t) {
-  if (!t) return;
-  const cur = getText();
-  setText(cur ? cur.replace(/\s+$/, "") + "\n" + t : t);
-  updateSaveBtn(); saveDraft();
+  const b = $("body");
+  if (t) b.value = b.value.trim() ? b.value.replace(/\s+$/, "") + "\n" + t : t;
+  autoGrow(); updateSaveBtn(); saveDraft();
 }
 
 // ===== 保存 =====
@@ -631,12 +694,13 @@ async function save() {
     const res = await api({
       action: "save",
       databaseId: state.dbId,
-      text: getText(),   // 1行目がタイトル、2行目からが本文
+      text: applyDict(getText()),   // 1行目がタイトル、2行目からが本文（辞書で読み替え）
       props: state.values,
       attachments,
     });
     if (failed.length) toast(`文字は保存しました。${failed.join("・")}は添付できませんでした`, true, res.url);
     else toast("保存しました", false, res.url);
+    refreshNames(state.dbId);
     resetForm();
   } catch (e) {
     toast("保存できませんでした: " + e.message, true);
@@ -676,6 +740,15 @@ $("dbBtn").onclick = () => {
 $("sheetBody").addEventListener("click", (e) => {
   const pick = e.target.closest("[data-pick]");
   if (pick) { closeSheet(); openDb(pick.dataset.pick); return; }
+  const dd = e.target.closest("[data-dict-del]");
+  if (dd) { const list = getDict(); list.splice(+dd.dataset.dictDel, 1); store.set("qn.dict", list); renderSettings(); return; }
+  if (e.target.closest("#dictAdd")) {
+    const from = $("dictFrom").value.trim(), to = $("dictTo").value.trim();
+    if (!from || !to || from === to) { toast("まちがいと正しい言葉の両方を入れてください", true); return; }
+    store.set("qn.dict", [...getDict().filter((d) => d.from !== from), { from, to }]);
+    renderSettings();
+    return;
+  }
   const star = e.target.closest("[data-star]");
   if (star) { state.defaultId = star.dataset.star; store.set("qn.default", state.defaultId); state.hidden = state.hidden.filter((x) => x !== state.defaultId); store.set("qn.hidden", state.hidden); renderSettings(); return; }
   const rl = e.target.closest("#reloadDbs");
@@ -704,6 +777,17 @@ function renderSettings() {
       <input type="checkbox" class="toggle" data-show="${d.id}" ${state.hidden.includes(d.id) ? "" : "checked"}>
     </div>`).join("")}
     <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」からインテグレーションを追加すると表示されます。</p>
+    <div class="sep"></div>
+    <h2>読み替え辞書</h2>
+    <p class="muted">文字起こしや入力でこの言葉が出たら、保存前に置き換えます。施設名の候補にも反映されます。</p>
+    ${getDict().map((d, i) => `<div class="item"><span class="t">${esc(d.from)}　→　<b style="font-weight:600;color:var(--ink)">${esc(d.to)}</b></span>
+      <button class="del-dict" data-dict-del="${i}" aria-label="削除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("")}
+    <div class="dict-add">
+      <input id="dictFrom" placeholder="まちがい（例: 矢原クリニック）" autocomplete="off">
+      <input id="dictTo" placeholder="正しい（例: やはらクリニック）" autocomplete="off">
+      <button class="primary" id="dictAdd">追加</button>
+    </div>
+    <p class="muted">施設名の候補：${knownNames().length}件（${esc(state.databases.find((d) => d.id === state.dbId)?.title || "")}の過去のタイトルから）</p>
     <div class="sep"></div>
     <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
     <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>

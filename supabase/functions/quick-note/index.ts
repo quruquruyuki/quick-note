@@ -160,12 +160,13 @@ async function uploadToNotion(file: File) {
 }
 
 // ── OpenAI 文字起こし ──
-async function transcribeOnce(file: File, model: string): Promise<Response> {
+async function transcribeOnce(file: File, model: string, prompt: string): Promise<Response> {
   const form = new FormData();
   form.append("file", file, file.name || "audio.m4a");
   form.append("model", model);
   form.append("language", "ja");
   form.append("response_format", "json");
+  if (prompt) form.append("prompt", prompt);
   return await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
     headers: { "Authorization": `Bearer ${OPENAI_API_KEY}` },
@@ -173,16 +174,22 @@ async function transcribeOnce(file: File, model: string): Promise<Response> {
   });
 }
 
-async function transcribe(file: File) {
+async function transcribe(file: File, hint = "") {
+  let prompt = hint.slice(0, 600);
   if (file.size > 25 * 1024 * 1024) throw new HttpError(400, "録音が長すぎます（25MBまで）");
   let model = TRANSCRIBE_MODEL;
   for (let i = 0; i < 4; i++) {
-    const res = await transcribeOnce(file, model);
+    const res = await transcribeOnce(file, model, prompt);
     if (res.ok) {
       const data = await res.json();
       return { text: String(data.text ?? "").trim(), model };
     }
     const text = await res.text();
+    // ヒントが受け付けられないモデルなら、ヒントなしでやり直す
+    if (res.status === 400 && prompt && /prompt/i.test(text)) {
+      prompt = "";
+      continue;
+    }
     // モデル名が使えないときは、安いモデルに切り替えて1回だけやり直す
     if ((res.status === 400 || res.status === 404) && /model/i.test(text) && model !== FALLBACK_TRANSCRIBE_MODEL) {
       model = FALLBACK_TRANSCRIBE_MODEL;
@@ -273,6 +280,28 @@ async function save(input: any) {
   return { ok: true, url: page.url, id: page.id };
 }
 
+// 過去のタイトル（施設名）の一覧。よく使う順（同数なら新しい順）
+async function titles(databaseId: string) {
+  const count = new Map<string, number>();
+  let cursor: string | undefined;
+  let pages = 0;
+  do {
+    // deno-lint-ignore no-explicit-any
+    const payload: any = { sorts: [{ timestamp: "created_time", direction: "descending" }], page_size: 100 };
+    if (cursor) payload.start_cursor = cursor;
+    const data = await notion(`/databases/${cleanId(databaseId)}/query?filter_properties=title`, "POST", payload);
+    for (const p of data.results) {
+      // deno-lint-ignore no-explicit-any
+      const tp = Object.values(p.properties as Record<string, any>).find((x) => x.type === "title");
+      const t = plain(tp?.title).trim();
+      if (t && t.length <= 40) count.set(t, (count.get(t) ?? 0) + 1);
+    }
+    pages += data.results.length;
+    cursor = data.has_more ? data.next_cursor : undefined;
+  } while (cursor && pages < 1000);
+  return [...count.entries()].sort((a, b) => b[1] - a[1]).map(([name, n]) => ({ name, n }));
+}
+
 // 最近作ったページ
 async function recent(databaseId: string) {
   const data = await notion(`/databases/${cleanId(databaseId)}/query`, "POST", {
@@ -318,7 +347,7 @@ Deno.serve(async (req) => {
       if (!(file instanceof File)) throw new HttpError(400, "ファイルがありません");
       if (action === "transcribe") {
         need(["OPENAI_API_KEY", OPENAI_API_KEY]);
-        return json(await transcribe(file));
+        return json(await transcribe(file, String(form.get("prompt") ?? "")));
       }
       if (action === "upload") {
         need(["NOTION_API_KEY", NOTION_API_KEY]);
@@ -336,6 +365,8 @@ Deno.serve(async (req) => {
         return json(await getSchema(body.databaseId));
       case "save":
         return json(await save(body));
+      case "titles":
+        return json({ titles: await titles(body.databaseId) });
       case "recent":
         return json({ pages: await recent(body.databaseId) });
       default:
