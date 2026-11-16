@@ -72,7 +72,7 @@
   /* ── 入力（見た目は1つの欄。1行目＝タイトル 20px、2行目から＝本文 17px） ── */
   main { padding: 6px 20px 16px; max-width: 720px; margin: 0 auto; }
   #title, #body { width: 100%; border: none; outline: none; background: transparent; color: var(--ink); display: block; }
-  #title { font-size: var(--fs-input); line-height: 1.4; padding: 6px 0 2px; height: calc(var(--fs-input) * 1.4 + 8px); }
+  #title { font-size: var(--fs-input); line-height: 1.4; padding: 6px 0 2px; resize: none; overflow: hidden; }
   #body { font-size: 17px; line-height: 1.35; resize: none; padding: 0 0 6px; min-height: 18vh; color: var(--ink2); }
   #title::placeholder, #body::placeholder { color: #C9C7C2; }
 
@@ -190,7 +190,7 @@
   </header>
 
   <main>
-    <input id="title" placeholder="ここに書く" autocomplete="off" enterkeyhint="next">
+    <textarea id="title" rows="1" placeholder="ここに書く" autocomplete="off" enterkeyhint="next"></textarea>
     <textarea id="body"></textarea>
     <div id="attachments"></div>
     <div id="props"></div>
@@ -226,7 +226,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.15-8";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-1";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 const MAX_REC_SEC = 15 * 60;               // 録音は最長15分
@@ -432,6 +432,10 @@ function updateSaveBtn() {
 }
 
 function autoGrow() {
+  // 1行目は画面の幅で折り返し、長くなったら下に伸びる（改行は入らない）
+  const t = $("title");
+  t.style.height = "auto";
+  t.style.height = t.scrollHeight + "px";
   const el = $("body");
   el.style.height = "auto";
   el.style.height = Math.max(window.innerHeight * 0.18, el.scrollHeight + 2) + "px";
