@@ -260,7 +260,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-12";     // 更新のたびに変える
+const APP_VERSION = "2026.11.16-13";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1186,6 +1186,7 @@ $("sheetBody").addEventListener("click", (e) => {
   if (e.target.closest("#logoutBtn")) { sb.auth.signOut(); closeSheet(); showLogin(); }
 });
 $("sheetBody").addEventListener("change", (e) => {
+  if (e.target.id === "autoFocusToggle") { store.set("qn.autoFocus", e.target.checked); return; }
   const id = e.target.dataset.show;
   if (id === undefined) return;
   state.hidden = e.target.checked ? state.hidden.filter((x) => x !== id) : [...new Set([...state.hidden, id])];
@@ -1217,6 +1218,10 @@ function renderSettings() {
     <div class="sep"></div>
     <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
     <button class="item" id="logoutBtn" style="color:var(--red)"><span class="ic" style="color:var(--red)"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10"/></svg></span><span class="t">ログアウト</span></button>
+    <div class="sep"></div>
+    <h2>開いたとき</h2>
+    <div class="item"><span class="t">すぐ入力欄にカーソルを入れる</span>
+      <input type="checkbox" class="toggle" id="autoFocusToggle" ${isAutoFocus() ? "checked" : ""}></div>
     <div class="sep"></div>
     <h2>録音のしかた</h2>
     <button class="item" data-mode="live"><span class="ic">${isLiveMode() ? "●" : "○"}</span>
@@ -1370,6 +1375,24 @@ if (window.visualViewport) {
   } catch {}
 })();
 
+// ===== 開いたらすぐ書けるように、入力欄にカーソルを入れる（設定でオン／オフ）=====
+const isAutoFocus = () => store.get("qn.autoFocus") !== false;
+function focusInput(force = false) {
+  if (!force && !isAutoFocus()) return;
+  if ($("app").classList.contains("hidden") || !$("sheet").classList.contains("hidden") || !$("recPanel").classList.contains("hidden")) return;
+  if (document.activeElement && document.activeElement.matches("input, textarea")) return;
+  // 1行目が空なら1行目へ、書きかけがあれば本文の最後へ
+  const el = $("title").value.trim() ? $("body") : $("title");
+  el.focus({ preventScroll: true });
+  const n = el.value.length;
+  try { el.setSelectionRange(n, n); } catch {}
+}
+// 書く欄の下の空いている所をタップしても、本文に入れるように
+$("scroller").addEventListener("click", (e) => {
+  if (e.target.closest("button, input, textarea, label, a, #props, #attachments, header")) return;
+  focusInput(true);
+});
+
 // ===== 画面切り替え =====
 function showLogin() { $("login").classList.remove("hidden"); $("app").classList.add("hidden"); }
 async function showApp() {
@@ -1379,6 +1402,7 @@ async function showApp() {
   setTimeout(prefetchLiveKey, 2500);
   updateOutboxBadge();
   setTimeout(flushOutbox, 2000);
+  setTimeout(focusInput, 300);
   try {
     await refreshDatabases();
     if (!state.dbId) openDb(state.defaultId);
@@ -1400,7 +1424,7 @@ document.addEventListener("visibilitychange", () => {
     saveDraft();
     // 別のアプリに切り替えたり画面を消したりしたら、録音は止める（つけっぱなしで料金がかかるのを防ぐ）
     if (rec && rec.mr.state !== "inactive") { rec.autoStopped = "アプリを離れたので、録音を止めました"; stopRec(false); }
-  } else { prefetchLiveKey(); flushOutbox(); }
+  } else { prefetchLiveKey(); flushOutbox(); setTimeout(focusInput, 200); }
 });
 
 // 圏外でもアプリを開けるように、画面とライブラリを端末にとっておく
