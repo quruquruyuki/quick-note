@@ -8,7 +8,7 @@
 // 任意:
 //   TRANSCRIBE_MODEL      … 録音ファイルの文字起こしモデル。既定は gpt-transcribe
 //   LIVE_TRANSCRIBE_MODEL … 話しながらの文字起こしモデル。既定は gpt-live-transcribe
-//   （安いモデルが出たら、ここを Supabase の Secrets で差し替えるだけで移行できる）
+//   いまは共通設定（app_settings: quick-note/transcribe_model, live_transcribe_model）が優先。Secrets は読めないときの予備
 
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -30,6 +30,28 @@ const LIVE_TRANSCRIBE_MODEL = env("LIVE_TRANSCRIBE_MODEL") || "gpt-live-transcri
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY") ?? "";
 const NOTION_VERSION = "2022-06-28";
+
+// ── 全アプリ共通の設定（Supabase の app_settings テーブル）──
+// AIモデルや料金単価はここから読む。1分間は使い回す。読めないときは従来の値（Secret・既定値）を使う
+const SETTINGS_TTL = 60_000;
+let settingsCache: { at: number; map: Record<string, unknown> } | null = null;
+async function appSettings(app: string): Promise<Record<string, unknown>> {
+  if (settingsCache && Date.now() - settingsCache.at < SETTINGS_TTL) return settingsCache.map;
+  const map: Record<string, unknown> = {};
+  try {
+    const key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    const q = `select=app,key,value&app=in.${encodeURIComponent(`("global","${app}")`)}`;
+    const r = await fetch(`${Deno.env.get("SUPABASE_URL")}/rest/v1/app_settings?${q}`, { headers: { apikey: key, Authorization: `Bearer ${key}` } });
+    if (r.ok) for (const row of await r.json()) map[row.app === "global" ? `global.${row.key}` : row.key] = row.value;
+    else console.error("app_settings", r.status, await r.text());
+  } catch (e) { console.error("app_settings", e); }
+  settingsCache = { at: Date.now(), map };
+  return map;
+}
+async function setting(app: string, key: string, fallback: string): Promise<string> {
+  const v = (await appSettings(app))[key];
+  return typeof v === "string" && v.trim() ? v.trim() : fallback;
+}
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -180,7 +202,7 @@ async function transcribeOnce(file: File, model: string, prompt: string): Promis
 async function transcribe(file: File, hint = "") {
   let prompt = hint.slice(0, 600);
   if (file.size > 25 * 1024 * 1024) throw new HttpError(400, "録音が長すぎます（25MBまで）");
-  let model = TRANSCRIBE_MODEL;
+  let model = await setting("quick-note", "transcribe_model", TRANSCRIBE_MODEL);
   for (let i = 0; i < 4; i++) {
     const res = await transcribeOnce(file, model, prompt);
     if (res.ok) {
@@ -211,8 +233,9 @@ async function transcribe(file: File, hint = "") {
 async function liveToken(hint: string, keywords: string[]) {
   // キーワードは1行・< > を含まないものだけ（含むと OpenAI に拒否される）
   const kw = keywords.map((k) => String(k).trim()).filter((k) => k && k.length <= 40 && !/[<>\r\n]/.test(k)).slice(0, 50);
+  const liveModel = await setting("quick-note", "live_transcribe_model", LIVE_TRANSCRIBE_MODEL);
   const transcription: Record<string, unknown> = {
-    model: LIVE_TRANSCRIBE_MODEL,
+    model: liveModel,
     languages: ["ja"],
     delay: "low",
   };
@@ -236,7 +259,7 @@ async function liveToken(hint: string, keywords: string[]) {
   const text = await res.text();
   if (!res.ok) throw new HttpError(502, `リアルタイム文字起こしを開始できません (${res.status}): ${text.slice(0, 300)}`);
   const data = JSON.parse(text);
-  return { value: data.value ?? data.client_secret?.value, model: LIVE_TRANSCRIBE_MODEL };
+  return { value: data.value ?? data.client_secret?.value, model: liveModel };
 }
 
 // ── 保存 ──
