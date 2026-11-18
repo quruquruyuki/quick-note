@@ -264,7 +264,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-5";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-6";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1574,12 +1574,15 @@ $("title").addEventListener("paste", (e) => {
 const isTyping = (el) => el && el.matches("#title, #body, input[type=url]");
 function placeBar() {
   const typing = isTyping(document.activeElement);
-  document.body.classList.toggle("kb", typing);
   // iPhoneはキーボードが出てもページの高さが変わらないので、
   // 「見えている範囲の下端」を計算して、バーだけをキーボードの真上に置く
   const vv = window.visualViewport;
   const lift = typing && vv ? Math.max(0, window.innerHeight - vv.height - vv.offsetTop) : 0;
-  $("bar").style.bottom = lift + "px";
+  // 本当にキーボードが出ているときだけ切り替える
+  // （起動時にカーソルだけ入ってキーボードが出ていないときに、バーが下にずれてホームバーと重なるのを防ぐ）
+  const kbOpen = typing && lift > 80;
+  document.body.classList.toggle("kb", kbOpen);
+  $("bar").style.bottom = kbOpen ? lift + "px" : "";
 }
 document.addEventListener("focusin", () => { placeBar(); setTimeout(placeBar, 300); });
 document.addEventListener("focusout", () => setTimeout(placeBar, 0));
