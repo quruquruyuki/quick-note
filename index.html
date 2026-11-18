@@ -264,7 +264,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-6";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-7";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -381,10 +381,44 @@ async function refreshNames(id) {
   } catch {}
 }
 // 文字起こしのヒント（よく行く施設名ほど先に）
-const transcribeHint = () => {
-  const names = knownNames().slice(0, 60);
-  return names.length ? "施設名: " + names.join("、") + "。" : "";
+// ── 文字起こしのヒント（よく出る言葉を先に伝えておくと、聞き間違いが減る）──
+// ツムラの医療用漢方製剤（番号つき）。設定でオン／オフできる
+const KAMPO = {
+  1: "葛根湯", 2: "葛根湯加川芎辛夷", 3: "乙字湯", 5: "安中散", 6: "十味敗毒湯", 7: "八味地黄丸", 8: "大柴胡湯", 9: "小柴胡湯",
+  10: "柴胡桂枝湯", 11: "柴胡桂枝乾姜湯", 12: "柴胡加竜骨牡蛎湯", 14: "半夏瀉心湯", 15: "黄連解毒湯", 16: "半夏厚朴湯", 17: "五苓散",
+  18: "桂枝加朮附湯", 19: "小青竜湯", 20: "防已黄耆湯", 21: "小半夏加茯苓湯", 22: "消風散", 23: "当帰芍薬散", 24: "加味逍遙散",
+  25: "桂枝茯苓丸", 26: "桂枝加竜骨牡蛎湯", 27: "麻黄湯", 28: "越婢加朮湯", 29: "麦門冬湯", 30: "真武湯", 31: "呉茱萸湯", 32: "人参湯",
+  33: "大黄牡丹皮湯", 34: "白虎加人参湯", 35: "四逆散", 36: "木防已湯", 37: "半夏白朮天麻湯", 38: "当帰四逆加呉茱萸生姜湯",
+  39: "苓桂朮甘湯", 40: "猪苓湯", 41: "補中益気湯", 43: "六君子湯", 45: "桂枝湯", 46: "七物降下湯", 47: "釣藤散", 48: "十全大補湯",
+  50: "荊芥連翹湯", 51: "潤腸湯", 52: "薏苡仁湯", 53: "疎経活血湯", 54: "抑肝散", 55: "麻杏甘石湯", 56: "五淋散", 57: "温清飲",
+  58: "清上防風湯", 59: "治頭瘡一方", 60: "桂枝加芍薬湯", 61: "桃核承気湯", 62: "防風通聖散", 63: "五積散", 64: "炙甘草湯",
+  65: "帰脾湯", 66: "参蘇飲", 67: "女神散", 68: "芍薬甘草湯", 69: "茯苓飲", 70: "香蘇散", 71: "四物湯", 72: "甘麦大棗湯", 73: "柴陥湯",
+  74: "調胃承気湯", 75: "四君子湯", 76: "竜胆瀉肝湯", 77: "芎帰膠艾湯", 78: "麻杏薏甘湯", 79: "平胃散", 80: "柴胡清肝湯", 81: "二陳湯",
+  82: "桂枝人参湯", 83: "抑肝散加陳皮半夏", 84: "大黄甘草湯", 85: "神秘湯", 86: "当帰飲子", 87: "六味丸", 88: "二朮湯", 89: "治打撲一方",
+  90: "清肺湯", 91: "竹筎温胆湯", 92: "滋陰至宝湯", 93: "滋陰降火湯", 95: "五虎湯", 96: "柴朴湯", 97: "大防風湯", 98: "黄耆建中湯",
+  99: "小建中湯", 100: "大建中湯", 101: "升麻葛根湯", 102: "当帰湯", 103: "酸棗仁湯", 104: "辛夷清肺湯", 105: "通導散", 106: "温経湯",
+  107: "牛車腎気丸", 108: "人参養栄湯", 109: "小柴胡湯加桔梗石膏", 110: "立効散", 111: "清心蓮子飲", 112: "猪苓湯合四物湯",
+  113: "三黄瀉心湯", 114: "柴苓湯", 115: "胃苓湯", 116: "茯苓飲合半夏厚朴湯", 117: "茵蔯五苓散", 118: "苓姜朮甘湯",
+  119: "苓甘姜味辛夏仁湯", 120: "黄連湯", 121: "三物黄芩湯", 122: "排膿散及湯", 123: "当帰建中湯", 124: "川芎茶調散",
+  125: "桂枝茯苓丸加薏苡仁", 126: "麻子仁丸", 127: "麻黄附子細辛湯", 128: "啓脾湯", 133: "大承気湯", 134: "桂枝加芍薬大黄湯",
+  135: "茵蔯蒿湯", 136: "清暑益気湯", 137: "加味帰脾湯", 138: "桔梗湯",
 };
+const HERBS = ["桔梗", "石膏", "柴胡", "黄芩", "黄連", "甘草", "麻黄", "附子", "当帰", "芍薬", "川芎", "地黄", "人参", "黄耆", "茯苓",
+  "蒼朮", "白朮", "半夏", "陳皮", "大黄", "山梔子", "釣藤鈎", "呉茱萸", "桂皮", "牡蛎", "竜骨", "厚朴", "生姜", "大棗"];
+const isKampoHint = () => store.get("qn.kampoHint") !== false;
+const getTerms = () => (store.get("qn.terms") || []).filter(Boolean);   // 自分で足した「よく使う言葉」
+// よく使う言葉 → 施設名 → 漢方薬 の順に優先して渡す
+function hintWords() {
+  const words = [...getTerms(), ...getDict().map((d) => d.to), ...knownNames().slice(0, 40)];
+  if (isKampoHint()) words.push(...Object.values(KAMPO), ...HERBS);
+  return [...new Set(words.map((w) => String(w).trim()).filter((w) => w && w.length <= 40))];
+}
+const transcribeHint = () => {
+  const words = hintWords();
+  return words.length ? "製薬会社のMRの面談メモ。出てくる言葉: " + words.join("、") + "。" : "";
+};
+// 話しながら表示のときのキーワード（数に限りがあるので、自分の言葉と施設名を優先）
+const liveKeywords = () => hintWords().slice(0, 50);
 
 // 話した内容を「施設名」と「本文」に分ける
 //  1) 冒頭が過去の施設名と一致したら、そこで区切る（長い名前を優先）
@@ -704,7 +738,7 @@ let liveKey = null;   // { value, at }
 async function prefetchLiveKey() {
   if (!isLiveMode() || (liveKey && Date.now() - liveKey.at < 8 * 60 * 1000)) return;
   try {
-    const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: knownNames().slice(0, 50) });
+    const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: liveKeywords() });
     if (value) liveKey = { value, at: Date.now() };
   } catch {}
 }
@@ -713,7 +747,7 @@ async function takeLiveKey() {
   liveKey = null;
   setTimeout(prefetchLiveKey, 1500);   // 次の録音のために取り直しておく
   if (k) return k;
-  const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: knownNames().slice(0, 50) });
+  const { value } = await api({ action: "live_token", prompt: transcribeHint(), keywords: liveKeywords() });
   return value;
 }
 
@@ -1363,6 +1397,17 @@ $("sheetBody").addEventListener("click", (e) => {
     renderSettings();
     return;
   }
+  const td = e.target.closest("[data-term-del]");
+  if (td) { const list = getTerms(); list.splice(+td.dataset.termDel, 1); store.set("qn.terms", list); liveKey = null; renderSettings(); return; }
+  if (e.target.closest("#termAddBtn")) {
+    // 「、」や改行で区切って、まとめて足せる
+    const words = $("termAdd").value.split(/[、,，\n]+/).map((s) => s.trim()).filter(Boolean);
+    if (!words.length) return;
+    store.set("qn.terms", [...new Set([...getTerms(), ...words])]);
+    liveKey = null; prefetchLiveKey();
+    renderSettings();
+    return;
+  }
   const dd = e.target.closest("[data-dict-del]");
   if (dd) { const list = getDict(); list.splice(+dd.dataset.dictDel, 1); store.set("qn.dict", list); renderSettings(); return; }
   if (e.target.closest("#dictAdd")) {
@@ -1384,6 +1429,7 @@ $("sheetBody").addEventListener("click", (e) => {
 });
 $("sheetBody").addEventListener("change", (e) => {
   if (e.target.id === "autoFocusToggle") { store.set("qn.autoFocus", e.target.checked); return; }
+  if (e.target.id === "kampoHintToggle") { store.set("qn.kampoHint", e.target.checked); liveKey = null; prefetchLiveKey(); return; }
   const id = e.target.dataset.show;
   if (id === undefined) return;
   state.hidden = e.target.checked ? state.hidden.filter((x) => x !== id) : [...new Set([...state.hidden, id])];
@@ -1418,6 +1464,17 @@ function renderSettings() {
       <input type="checkbox" class="toggle" data-show="${d.id}" ${state.hidden.includes(d.id) ? "" : "checked"}>
     </div>`).join("")}
     <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」からインテグレーションを追加すると表示されます。</p>
+    <div class="sep"></div>
+    <h2>聞き取りのヒント</h2>
+    <div class="item"><span class="t" style="white-space:normal">漢方薬の名前（ツムラ製剤${Object.keys(KAMPO).length}種と主な生薬）を伝える</span>
+      <input type="checkbox" class="toggle" id="kampoHintToggle" ${isKampoHint() ? "checked" : ""}></div>
+    <p class="muted">よく使う言葉（製品名・先生の名前・検査名など）を足すと、その言葉で聞き取りやすくなります。</p>
+    ${getTerms().map((t, i) => `<div class="item"><span class="t">${esc(t)}</span>
+      <button class="del-dict" data-term-del="${i}" aria-label="削除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("")}
+    <div class="dict-add" style="grid-template-columns:1fr auto">
+      <input id="termAdd" placeholder="例: 小柴胡湯加桔梗石膏、〇〇先生" autocomplete="off">
+      <button class="primary small" id="termAddBtn">追加</button>
+    </div>
     <div class="sep"></div>
     <h2>読み替え辞書</h2>
     <p class="muted">文字起こしや入力でこの言葉が出たら、保存前に置き換えます。施設名の候補にも反映されます。</p>

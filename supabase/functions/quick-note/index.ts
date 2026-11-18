@@ -200,7 +200,7 @@ async function transcribeOnce(file: File, model: string, prompt: string): Promis
 }
 
 async function transcribe(file: File, hint = "") {
-  let prompt = hint.slice(0, 600);
+  let prompt = hint.slice(0, 1600);   // 漢方薬の名前などの用語集を含むので長め
   if (file.size > 25 * 1024 * 1024) throw new HttpError(400, "録音が長すぎます（25MBまで）");
   let model = await setting("quick-note", "transcribe_model", TRANSCRIBE_MODEL);
   for (let i = 0; i < 4; i++) {
@@ -210,9 +210,9 @@ async function transcribe(file: File, hint = "") {
       return { text: String(data.text ?? "").trim(), model };
     }
     const text = await res.text();
-    // ヒントが受け付けられないモデルなら、ヒントなしでやり直す
+    // ヒントが長すぎる・受け付けられないときは、短くして→それでもだめならヒントなしでやり直す
     if (res.status === 400 && prompt && /prompt/i.test(text)) {
-      prompt = "";
+      prompt = prompt.length > 500 ? prompt.slice(0, 500) : "";
       continue;
     }
     // モデル名が使えないときは、安いモデルに切り替えて1回だけやり直す
@@ -239,7 +239,7 @@ async function liveToken(hint: string, keywords: string[]) {
     languages: ["ja"],
     delay: "low",
   };
-  if (hint) transcription.prompt = hint.replace(/[\r\n]+/g, " ").slice(0, 400);
+  if (hint) transcription.prompt = hint.replace(/[\r\n]+/g, " ").slice(0, 1600);
   if (kw.length) transcription.keywords = kw;
   const session = { type: "transcription", audio: { input: { transcription, turn_detection: null } } };
 
@@ -251,6 +251,11 @@ async function liveToken(hint: string, keywords: string[]) {
   });
   let res = await call(session, true);
   if (!res.ok && res.status === 400) res = await call(session, false);
+  if (!res.ok && res.status === 400 && typeof transcription.prompt === "string" && transcription.prompt.length > 400) {
+    // ヒントが長すぎて断られたら、短くしてやり直す
+    transcription.prompt = transcription.prompt.slice(0, 400);
+    res = await call(session, false);
+  }
   if (!res.ok && res.status === 400) {
     // ヒントやキーワードが原因で断られたら、ヒントなしでやり直す
     delete transcription.prompt; delete transcription.keywords;
