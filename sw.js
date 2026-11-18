@@ -1,7 +1,7 @@
 // Notion Quick の Service Worker
 // 圏外（地下など）でもアプリ自体を開けるように、画面とライブラリを端末にとっておく。
 // Notion や OpenAI への通信はここでは扱わない（そのまま通す）。
-const CACHE = "notion-quick-v1";
+const CACHE = "notion-quick-v2";
 const CORE = [
   "./",
   "./index.html",
@@ -47,7 +47,8 @@ self.addEventListener("fetch", (e) => {
         if (res.ok) cache.put("./index.html", res.clone());
         return res;
       } catch {
-        return (await cache.match("./index.html")) || (await cache.match("./")) || Response.error();
+        return (await cache.match("./index.html", { ignoreSearch: true })) || (await cache.match("./", { ignoreSearch: true }))
+          || (await cache.match(req, { ignoreSearch: true })) || Response.error();
       }
     })());
     return;

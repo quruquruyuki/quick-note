@@ -260,7 +260,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.16-14";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-1";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1004,7 +1004,7 @@ async function sendNote(note) {
     }
   }
   for (const f of note.images || []) {
-    try { const { id } = await apiFile("upload", f, f.name || `photo-${Date.now()}.jpg`); attachments.push({ id, kind: "image" }); }
+    try { const name = f.name || `photo-${Date.now()}.jpg`; const { id } = await apiFile("upload", f, name); attachments.push({ id, kind: "image", name }); }
     catch (err) { if (isNetErr(err)) throw err; failed.push("写真"); }
   }
   for (const a of (note.audios || []).filter((x) => x.keep)) {
@@ -1035,7 +1035,7 @@ function mergeTranscript(text, t) {
 function isNetErr(e) {
   if (!navigator.onLine) return true;
   const m = String(e?.message || e || "");
-  return e?.name === "FunctionsFetchError" || /offline|Failed to fetch|Load failed|NetworkError|network|Failed to send a request|ネットワーク/i.test(m);
+  return e?.name === "FunctionsFetchError" || e?.name === "AuthRetryableFetchError" || /offline|Failed to fetch|Load failed|NetworkError|network|Failed to send a request|ネットワーク/i.test(m);
 }
 
 // ===== 端末内の保存場所（IndexedDB。写真や音声もそのまま入れられる）=====
@@ -1309,6 +1309,13 @@ $("title").addEventListener("input", () => {
   onType();
 });
 $("body").addEventListener("input", onType);
+// まだ何も書いていないときは、2行目（本文）をタップしてもカーソルは1行目に入れる
+$("body").addEventListener("pointerdown", (e) => {
+  if (!$("title").value.trim() && !$("body").value.trim()) { e.preventDefault(); $("title").focus(); }
+});
+$("body").addEventListener("focus", () => {
+  if (!$("title").value.trim() && !$("body").value.trim()) $("title").focus();
+});
 // 1行目で改行 → 2行目（本文）へ
 $("title").addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.isComposing) {
@@ -1447,8 +1454,15 @@ if ("serviceWorker" in navigator && location.protocol === "https:") {
 }
 
 (async () => {
-  const { data } = await sb.auth.getSession();
-  if (data.session) { showApp(); loadRate(); } else showLogin();
+  let session = null;
+  try { session = (await sb.auth.getSession()).data.session; } catch {}
+  // 圏外ではログインの更新ができず session が空になることがある。
+  // 前にログインした記録が端末にあれば、そのままアプリを開く（送信は電波が戻ってから）
+  let loggedBefore = false;
+  try { loggedBefore = Object.keys(localStorage).some((k) => /^sb-.*-auth-token$/.test(k)); } catch {}
+  if (session) { showApp(); loadRate(); }
+  else if (loggedBefore) showApp();
+  else showLogin();
 })();
 </script>
 </body>

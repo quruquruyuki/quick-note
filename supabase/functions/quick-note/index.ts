@@ -141,7 +141,7 @@ async function listDatabases() {
 }
 
 // 入力画面で使うプロパティだけを返す
-const SUPPORTED = new Set(["title", "date", "select", "multi_select", "checkbox", "url", "status"]);
+const SUPPORTED = new Set(["title", "date", "select", "multi_select", "checkbox", "url", "status", "files"]);
 async function getSchema(databaseId: string) {
   const db = await notion(`/databases/${cleanId(databaseId)}`);
   // deno-lint-ignore no-explicit-any
@@ -321,13 +321,28 @@ async function save(input: any) {
     }
   }
 
+  // 写真は、DBに「ファイル&メディア」のプロパティがあればそこに入れる（なければ本文に貼る）
+  const filesProp = schema.properties.find((p) => p.type === "files");
+  const valid = attachments.filter((a) => a && typeof a.id === "string");
+  const images = valid.filter((a) => a.kind === "image");
+  if (filesProp && images.length) {
+    properties[filesProp.name] = {
+      files: images.map((a, i) => ({
+        type: "file_upload",
+        file_upload: { id: a.id },
+        name: (a.name || `photo-${i + 1}.jpg`).slice(0, 100),
+      })),
+    };
+  }
+
   const children: unknown[] = [];
   // 段落ごとに分けて本文に入れる（空行は区切りとして扱う）
   for (const para of bodyText ? bodyText.split(/\n{2,}/) : []) {
     if (para.trim()) children.push(paragraph(para));
   }
-  for (const a of attachments) {
-    if (a && typeof a.id === "string") children.push(attachmentBlock(a));
+  for (const a of valid) {
+    if (filesProp && a.kind === "image") continue;   // プロパティに入れた写真は本文には貼らない
+    children.push(attachmentBlock(a));
   }
 
   const page = await notion("/pages", "POST", {
