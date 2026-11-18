@@ -243,7 +243,7 @@
     <button id="saveBtn" disabled>保存</button>
   </div>
   <input type="file" id="photoInput" accept="image/*" multiple class="hidden">
-  <input type="file" id="audioInput" accept="audio/*,.m4a,.mp3,.wav,.aac,.caf" multiple class="hidden">
+  <input type="file" id="audioInput" accept=".m4a,.mp3,.wav,.aac,.caf,.mp4a" multiple class="hidden">
 </section>
 
 <div id="recPanel" class="hidden">
@@ -264,7 +264,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-3";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-4";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
