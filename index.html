@@ -168,6 +168,7 @@
   .item:active { background: var(--hover); }
   .item .ic { width: 22px; text-align: center; color: var(--sub); }
   .item[data-mode] .t, .item .t .s { white-space: normal; }
+  #openWords .t .s { display: block; margin-top: 2px; }
   .item[data-mode] .t .s { display: block; margin-top: 2px; }
   .item .t { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .item .s { color: var(--faint); font-size: var(--fs-sub); white-space: nowrap; }
@@ -179,6 +180,14 @@
   .dict-add { display: grid; gap: 8px; margin: 4px 10px 8px; }
   .dict-add input { width: 100%; font-size: 16px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); outline: none; }
   .del-dict { color: var(--faint); padding: 6px; }
+  .w-row { display: flex; align-items: center; gap: 6px; padding: 2px 6px 2px 10px; }
+  .w-row input { flex: 1; min-width: 0; font-size: 16px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink2); outline: none; }
+  .w-row input:focus { border-color: var(--line); background: var(--field); }
+  .w-row .arrow { color: var(--faint); flex: none; }
+  .w-row .no { color: var(--faint); font-size: 11px; width: 34px; flex: none; text-align: right; }
+  .w-search { position: sticky; top: -8px; z-index: 1; background: #fff; padding: 6px 10px 8px; }
+  .w-search input { width: 100%; font-size: 16px; padding: 9px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--field); outline: none; }
+  .w-link { color: var(--sub); font-size: var(--fs-sub); padding: 8px 10px; }
   .sep { height: 1px; background: var(--line); margin: 6px 4px; }
 
   .toast { position: fixed; left: 50%; bottom: calc(var(--safe-b) + 92px); transform: translateX(-50%); z-index: 40; background: var(--ink); color: #fff; padding: 12px 16px; border-radius: 10px; font-size: var(--fs-sub); width: max-content; max-width: 90vw; text-align: center; box-shadow: 0 4px 16px rgba(0,0,0,.15); }
@@ -264,7 +273,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-8";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-9";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -416,11 +425,15 @@ const KAMPO = {
 const HERBS = ["桔梗", "石膏", "柴胡", "黄芩", "黄連", "甘草", "麻黄", "附子", "当帰", "芍薬", "川芎", "地黄", "人参", "黄耆", "茯苓",
   "蒼朮", "白朮", "半夏", "陳皮", "大黄", "山梔子", "釣藤鈎", "呉茱萸", "桂皮", "牡蛎", "竜骨", "厚朴", "生姜", "大棗"];
 const isKampoHint = () => store.get("qn.kampoHint") !== false;
+// 漢方薬・生薬の一覧（最初はツムラ製剤＋主な生薬。言葉の一覧の画面で直せる）
+const DEFAULT_KAMPO_WORDS = [...Object.values(KAMPO), ...HERBS];
+const KAMPO_NO = Object.fromEntries(Object.entries(KAMPO).map(([n, w]) => [w, n]));
+const getKampoWords = () => { const v = store.get("qn.kampoWords"); return (Array.isArray(v) ? v : DEFAULT_KAMPO_WORDS).filter(Boolean); };
 const getTerms = () => (store.get("qn.terms") || []).filter(Boolean);   // 自分で足した「よく使う言葉」
 // よく使う言葉 → 施設名 → 漢方薬 の順に優先して渡す
 function hintWords() {
   const words = [...getTerms(), ...getDict().map((d) => d.to), ...knownNames().slice(0, 40)];
-  if (isKampoHint()) words.push(...Object.values(KAMPO), ...HERBS);
+  if (isKampoHint()) words.push(...getKampoWords());
   return [...new Set(words.map((w) => String(w).trim()).filter((w) => w && w.length <= 40))];
 }
 const transcribeHint = () => {
@@ -1419,25 +1432,41 @@ $("sheetBody").addEventListener("click", (e) => {
     return;
   }
   const td = e.target.closest("[data-term-del]");
-  if (td) { const list = getTerms(); list.splice(+td.dataset.termDel, 1); store.set("qn.terms", list); liveKey = null; renderSettings(); return; }
+  if (td) { const list = getTerms(); list.splice(+td.dataset.termDel, 1); store.set("qn.terms", list); hintsChanged(); renderWords(true); return; }
   if (e.target.closest("#termAddBtn")) {
     // 「、」や改行で区切って、まとめて足せる
-    const words = $("termAdd").value.split(/[、,，\n]+/).map((s) => s.trim()).filter(Boolean);
+    const words = splitWords($("termAdd").value);
     if (!words.length) return;
     store.set("qn.terms", [...new Set([...getTerms(), ...words])]);
-    liveKey = null; prefetchLiveKey();
-    renderSettings();
+    hintsChanged(); renderWords(true);
     return;
   }
   const dd = e.target.closest("[data-dict-del]");
-  if (dd) { const list = getDict(); list.splice(+dd.dataset.dictDel, 1); store.set("qn.dict", list); renderSettings(); return; }
+  if (dd) { const list = getDict(); list.splice(+dd.dataset.dictDel, 1); store.set("qn.dict", list); hintsChanged(); renderWords(true); return; }
   if (e.target.closest("#dictAdd")) {
     const from = $("dictFrom").value.trim(), to = $("dictTo").value.trim();
     if (!from || !to || from === to) { toast("まちがいと正しい言葉の両方を入れてください", true); return; }
     store.set("qn.dict", [...getDict().filter((d) => d.from !== from), { from, to }]);
-    renderSettings();
+    hintsChanged(); renderWords(true);
     return;
   }
+  const kd = e.target.closest("[data-kw-del]");
+  if (kd) { const list = getKampoWords(); list.splice(+kd.dataset.kwDel, 1); store.set("qn.kampoWords", list); hintsChanged(); renderWords(true); return; }
+  if (e.target.closest("#kwAddBtn")) {
+    const words = splitWords($("kwAdd").value);
+    if (!words.length) return;
+    store.set("qn.kampoWords", [...new Set([...getKampoWords(), ...words])]);
+    hintsChanged(); renderWords(true);
+    return;
+  }
+  if (e.target.closest("#kwReset")) {
+    const added = getKampoWords().filter((w) => !DEFAULT_KAMPO_WORDS.includes(w)).length;
+    store.del("qn.kampoWords"); hintsChanged(); renderWords(true);
+    toast("最初の一覧に戻しました" + (added ? `（自分で足した${added}件は消えました）` : ""));
+    return;
+  }
+  if (e.target.closest("#openWords")) { wordsQuery = ""; renderWords(); return; }
+  if (e.target.closest("#wordsBack")) { renderSettings(); return; }
   const star = e.target.closest("[data-star]");
   if (star) { state.defaultId = star.dataset.star; store.set("qn.default", state.defaultId); state.hidden = state.hidden.filter((x) => x !== state.defaultId); store.set("qn.hidden", state.hidden); renderSettings(); return; }
   const rl = e.target.closest("#reloadDbs");
@@ -1476,6 +1505,83 @@ async function checkOfflineReady() {
   el.innerHTML += `<br><span style="font-size:11px">${esc(location.href)}</span>`;
 }
 
+// ===== 言葉の一覧（よく使う言葉・読み替え辞書・漢方薬）を見て直す画面 =====
+let wordsQuery = "";
+const X_ICON = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>`;
+function renderWords(keepScroll) {
+  const el = $("sheetBody"), top = keepScroll ? el.scrollTop : 0;
+  const hit = (...w) => !wordsQuery || w.some((x) => String(x).includes(wordsQuery));
+  const terms = getTerms(), dict = getDict(), kw = getKampoWords();
+  const row = (inner, show, q) => `<div class="w-row" data-q="${esc(q)}"${show ? "" : ' style="display:none"'}>${inner}</div>`;
+  openSheet(`<h2><button class="w-link" id="wordsBack" style="padding-left:0">‹ 設定</button><button class="close">完了</button></h2>
+    <div class="w-search"><input id="wordsSearch" type="search" placeholder="さがす（例: 柴胡）" value="${esc(wordsQuery)}" autocomplete="off"></div>
+    <p class="muted">言葉をタップすると直せます。消すと一覧から外れます。</p>
+
+    <h2>よく使う言葉（${terms.length}）</h2>
+    <p class="muted">製品名・先生の名前・検査名など。文字起こしのときに優先して伝えます。</p>
+    ${terms.map((t, i) => row(`<input data-term-edit="${i}" value="${esc(t)}" autocomplete="off"><button class="del-dict" data-term-del="${i}" aria-label="削除">${X_ICON}</button>`, hit(t), t)).join("")}
+    <div class="dict-add" style="grid-template-columns:1fr auto">
+      <input id="termAdd" placeholder="足す（「、」で区切ってまとめて）" autocomplete="off">
+      <button class="primary small" id="termAddBtn">追加</button>
+    </div>
+    <div class="sep"></div>
+
+    <h2>読み替え辞書（${dict.length}）</h2>
+    <p class="muted">左の言葉が出たら、右の言葉に置き換えます。</p>
+    ${dict.map((d, i) => row(`<input data-dict-from="${i}" value="${esc(d.from)}" autocomplete="off"><span class="arrow">→</span><input data-dict-to="${i}" value="${esc(d.to)}" style="font-weight:600;color:var(--ink)" autocomplete="off"><button class="del-dict" data-dict-del="${i}" aria-label="削除">${X_ICON}</button>`, hit(d.from, d.to), d.from + " " + d.to)).join("")}
+    <div class="dict-add">
+      <input id="dictFrom" placeholder="まちがい（例: 帰経湯）" autocomplete="off">
+      <input id="dictTo" placeholder="正しい（例: 桔梗湯）" autocomplete="off">
+      <button class="primary" id="dictAdd">追加</button>
+    </div>
+    <div class="sep"></div>
+
+    <h2>漢方薬・生薬（${kw.length}）</h2>
+    <div class="item"><span class="t">文字起こしのときに伝える</span>
+      <input type="checkbox" class="toggle" id="kampoHintToggle" ${isKampoHint() ? "checked" : ""}></div>
+    ${kw.map((w, i) => row(`<span class="no">${KAMPO_NO[w] ? "No." + KAMPO_NO[w] : ""}</span><input data-kw-edit="${i}" value="${esc(w)}" autocomplete="off"><button class="del-dict" data-kw-del="${i}" aria-label="削除">${X_ICON}</button>`, hit(w, KAMPO_NO[w] || ""), w + " " + (KAMPO_NO[w] || ""))).join("")}
+    <div class="dict-add" style="grid-template-columns:1fr auto">
+      <input id="kwAdd" placeholder="足す（「、」で区切ってまとめて）" autocomplete="off">
+      <button class="primary small" id="kwAddBtn">追加</button>
+    </div>
+    <button class="w-link" id="kwReset">最初の一覧に戻す</button>`);
+  el.dataset.view = "words";
+  el.scrollTop = top;
+}
+const splitWords = (v) => v.split(/[、,，\n]+/).map((x) => x.trim()).filter(Boolean);
+const hintsChanged = () => { liveKey = null; prefetchLiveKey(); };
+$("sheetBody").addEventListener("input", (e) => {
+  if (e.target.id !== "wordsSearch") return;
+  // 画面を作り直さず、合わない行を隠すだけ（日本語の変換中でも崩れないように）
+  wordsQuery = e.target.value.trim();
+  for (const r of $("sheetBody").querySelectorAll(".w-row")) r.style.display = !wordsQuery || r.dataset.q.includes(wordsQuery) ? "" : "none";
+});
+// 直した言葉は、入力欄から離れたときに保存（空にしたら消す）
+$("sheetBody").addEventListener("change", (e) => {
+  const t = e.target, v = (t.value || "").trim();
+  if (t.dataset.termEdit !== undefined) {
+    const list = getTerms(); if (v) list[+t.dataset.termEdit] = v; else list.splice(+t.dataset.termEdit, 1);
+    store.set("qn.terms", [...new Set(list)]); hintsChanged(); if (!v) renderWords(true); return;
+  }
+  if (t.dataset.kwEdit !== undefined) {
+    const list = getKampoWords(); if (v) list[+t.dataset.kwEdit] = v; else list.splice(+t.dataset.kwEdit, 1);
+    store.set("qn.kampoWords", [...new Set(list)]); hintsChanged(); if (!v) renderWords(true); return;
+  }
+  const fi = t.dataset.dictFrom ?? t.dataset.dictTo;
+  if (fi !== undefined) {
+    const list = getDict(), d = list[+fi]; if (!d) return;
+    if (t.dataset.dictFrom !== undefined) d.from = v; else d.to = v;
+    store.set("qn.dict", list.filter((x) => x.from && x.to && x.from !== x.to));
+    hintsChanged(); if (!v) renderWords(true);
+  }
+});
+$("sheetBody").addEventListener("keydown", (e) => {
+  if (e.key !== "Enter" || e.isComposing) return;
+  if (e.target.matches("[data-term-edit],[data-kw-edit],[data-dict-from],[data-dict-to]")) { e.preventDefault(); e.target.blur(); }
+  else if (e.target.id === "termAdd") { e.preventDefault(); $("termAddBtn").click(); }
+  else if (e.target.id === "kwAdd") { e.preventDefault(); $("kwAddBtn").click(); }
+});
+
 function renderSettings() {
   openSheet(`<h2>データベース<button class="close">完了</button></h2>
     <p class="muted">★ 起動時に開く　／　チェック 切り替えに表示</p>
@@ -1487,25 +1593,11 @@ function renderSettings() {
     <p class="muted">一覧にないデータベースは、Notionでそのデータベースを開き「…」→「接続」からインテグレーションを追加すると表示されます。</p>
     <div class="sep"></div>
     <h2>聞き取りのヒント</h2>
-    <div class="item"><span class="t" style="white-space:normal">漢方薬の名前（ツムラ製剤${Object.keys(KAMPO).length}種と主な生薬）を伝える</span>
+    <div class="item"><span class="t" style="white-space:normal">漢方薬・生薬の名前（${getKampoWords().length}語）を伝える</span>
       <input type="checkbox" class="toggle" id="kampoHintToggle" ${isKampoHint() ? "checked" : ""}></div>
-    <p class="muted">よく使う言葉（製品名・先生の名前・検査名など）を足すと、その言葉で聞き取りやすくなります。</p>
-    ${getTerms().map((t, i) => `<div class="item"><span class="t">${esc(t)}</span>
-      <button class="del-dict" data-term-del="${i}" aria-label="削除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("")}
-    <div class="dict-add" style="grid-template-columns:1fr auto">
-      <input id="termAdd" placeholder="例: 小柴胡湯加桔梗石膏、〇〇先生" autocomplete="off">
-      <button class="primary small" id="termAddBtn">追加</button>
-    </div>
-    <div class="sep"></div>
-    <h2>読み替え辞書</h2>
-    <p class="muted">文字起こしや入力でこの言葉が出たら、保存前に置き換えます。施設名の候補にも反映されます。</p>
-    ${getDict().map((d, i) => `<div class="item"><span class="t">${esc(d.from)}　→　<b style="font-weight:600;color:var(--ink)">${esc(d.to)}</b></span>
-      <button class="del-dict" data-dict-del="${i}" aria-label="削除"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`).join("")}
-    <div class="dict-add">
-      <input id="dictFrom" placeholder="まちがい（例: 矢原クリニック）" autocomplete="off">
-      <input id="dictTo" placeholder="正しい（例: やはらクリニック）" autocomplete="off">
-      <button class="primary" id="dictAdd">追加</button>
-    </div>
+    <button class="item" id="openWords"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M5 6h14M5 12h14M5 18h9"/></svg></span>
+      <span class="t" style="white-space:normal">言葉の一覧を見る・直す<br><span class="s">よく使う言葉 ${getTerms().length}・読み替え ${getDict().length}・漢方薬 ${getKampoWords().length}</span></span>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--faint)"><path d="M9 6l6 6-6 6"/></svg></button>
     <p class="muted">施設名の候補：${knownNames().length}件（${esc(state.databases.find((d) => d.id === state.dbId)?.title || "")}の過去のタイトルから）</p>
     <div class="sep"></div>
     <button class="item" id="reloadDbs"><span class="ic"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg></span><span class="t">一覧を更新</span></button>
