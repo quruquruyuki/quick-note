@@ -264,7 +264,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-7";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-8";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -295,7 +295,17 @@ const store = {
 };
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const todayStr = () => ymd(new Date());
-function jpDate(s) { const [y, m, d] = s.split("-").map(Number); const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()]; return `${y}年${m}月${d}日（${w}）`; }
+function jpDate(s) {
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number); const w = "日月火水木金土"[new Date(y, m - 1, d).getDay()];
+  const t = /T(\d{2}):(\d{2})/.exec(s);   // 時刻つき（録音の日時）なら時刻も出す
+  return `${y}年${m}月${d}日（${w}）` + (t ? ` ${Number(t[1])}:${t[2]}` : "");
+}
+// Notionに送る日時（日本時間のオフセットつき）
+const isoLocal = (d) => {
+  const off = -d.getTimezoneOffset(), sign = off >= 0 ? "+" : "-", a = Math.abs(off);
+  const p2 = (n) => String(n).padStart(2, "0");
+  return `${ymd(d)}T${p2(d.getHours())}:${p2(d.getMinutes())}:00${sign}${p2(Math.floor(a / 60))}:${p2(a % 60)}`;
+};
 function esc(s) { return String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])); }
 const NOTION_FILE_LIMIT = 5 * 1024 * 1024;   // Notion無料プランの1ファイル上限
 const fmtSize = (b) => b >= 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + "MB" : Math.max(1, Math.round(b / 1024)) + "KB";
@@ -529,7 +539,7 @@ function renderProps() {
     const v = state.values[p.name];
     html += `<div class="prop-row">${ICONS.date.replace(/width="16" height="16"/, 'width="18" height="18"')}
       <label class="date-val"><span class="k">${esc(p.name)}</span>${v ? jpDate(v) : `<span style="color:var(--faint)">未設定</span>`}
-        <input type="date" data-date="${esc(p.name)}" value="${esc(v || "")}"></label>
+        <input type="date" data-date="${esc(p.name)}" value="${esc((v || "").slice(0, 10))}"></label>
       ${i === 0 && url ? `<button class="link-btn ${urlOpen ? "on" : ""}" id="urlToggle" aria-label="${esc(url.name)}">${ICONS.url.replace(/width="16" height="16"/, 'width="18" height="18"')}</button>` : ""}
     </div>`;
   });
@@ -1111,16 +1121,25 @@ const trimNote = (a) => a.txSec != null && a.sec - a.txSec > 5
   ? `録音${mmss(a.sec)}のうち声のある${mmss(a.txSec)}だけ文字起こし（約${fmtYen(yen(a.txSec, PRICE_FILE_PER_MIN))}）`
   : `${mmss(a.sec)}・約${fmtYen(yen(a.txSec ?? a.sec, PRICE_FILE_PER_MIN))}`;
 
-// 録音した日（ファイルの日時）を日付プロパティ用に
-const fileDate = (f) => ymd(new Date(f.lastModified || Date.now()));
+// 録音を始めた日時。ファイル名に日時があればそれ（例: 2026-11-18 10-23-45.m4a）、
+// なければファイルの更新日時（＝録音が終わった時刻）から録音の長さを引く
+function recStartOf(f, sec) {
+  const m = /(20\d{2})[-_.]?(\d{2})[-_.]?(\d{2})[ T_-]+(\d{2})[-_.:h]?(\d{2})/.exec(f.name || "");
+  if (m) {
+    const d = new Date(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]);
+    if (!isNaN(d) && d.getMonth() === +m[2] - 1) return d;
+  }
+  return new Date((f.lastModified || Date.now()) - Math.round((sec || 0) * 1000));
+}
+const fileDate = (f, sec) => isoLocal(recStartOf(f, sec));
 
 async function importOne(file) {
   toast("録音を読み込んでいます…");
   const audio = await prepareImport(file);
   audio.url = URL.createObjectURL(audio.blob);
-  // 録音した日を日付に入れる（今日でなければ）
+  // 録音を始めた日時を日付プロパティに入れる
   const dp = state.schema?.properties.find((p) => p.type === "date");
-  if (dp && fileDate(file) !== todayStr()) state.values[dp.name] = fileDate(file);
+  if (dp) state.values[dp.name] = fileDate(file, audio.sec);
   try {
     if (audio.txSec === 0) { toast("声が見つかりませんでした（録音は添付しておきます）", true); }
     else {
@@ -1151,7 +1170,7 @@ async function importMany(files) {
     const a = await prepareImport(f);
     total += a.sec; speech += a.txSec ?? a.sec;
     const props = {};
-    if (dp) props[dp.name] = fileDate(f);
+    if (dp) props[dp.name] = fileDate(f, a.sec);
     if (audioCheck) props[audioCheck.name] = true;
     await outbox.put({
       id: `n${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
@@ -1342,7 +1361,8 @@ function resetForm() {
   state.audios.forEach((a) => URL.revokeObjectURL(a.url));
   state.images = []; state.audios = []; state.showUrl = false;
   const keepDates = {};
-  for (const p of state.schema.properties) if (p.type === "date") keepDates[p.name] = state.values[p.name];
+  // 日付は残す（録音の日時が入っていたものは、次のメモには持ち越さない）
+  for (const p of state.schema.properties) if (p.type === "date" && !/T/.test(state.values[p.name] || "")) keepDates[p.name] = state.values[p.name];
   applySchema(state.schema);
   Object.assign(state.values, keepDates);
   renderProps(); renderAttachments(); autoGrow();
@@ -1359,7 +1379,8 @@ $("clearBtn").onclick = () => {
   store.del("qn.draft." + state.dbId);
   state.images = []; state.audios = []; state.showUrl = false;
   const keepDates = {};
-  for (const p of state.schema.properties) if (p.type === "date") keepDates[p.name] = state.values[p.name];
+  // 日付は残す（録音の日時が入っていたものは、次のメモには持ち越さない）
+  for (const p of state.schema.properties) if (p.type === "date" && !/T/.test(state.values[p.name] || "")) keepDates[p.name] = state.values[p.name];
   applySchema(state.schema);
   Object.assign(state.values, keepDates);
   renderProps(); renderAttachments(); autoGrow(); updateSaveBtn();
