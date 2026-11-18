@@ -264,7 +264,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-4";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-5";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -974,26 +974,132 @@ function audioDuration(blob) {
     a.src = url;
   });
 }
+// ===== 声のある部分だけを抜き出す（無音・止め忘れの部分は文字起こしに送らない）=====
+// 録音を16kHzモノラルに読み込み、30ミリ秒ごとの音量から「声がある区間」を探してつなげる。
+// 文字起こしの料金は送った長さで決まるので、無音を除くほど安くなる。
+// 出力は WAV（1本あたり最長10分。それより長ければ分割して順番に文字起こしする）
+const SR = 16000, FRAME = 480;               // 16kHz・30ミリ秒
+const CHUNK_SEC = 600;                       // 1本10分（WAVで約19MB、文字起こしの上限25MB未満）
+async function extractSpeech(file) {
+  const ab = await file.arrayBuffer();
+  const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+  const buf = await new Promise((res, rej) => {
+    const p = new Ctx(1, SR, SR).decodeAudioData(ab, res, rej);
+    if (p && p.then) p.then(res, rej);
+  });
+  // モノラルに
+  const n = buf.length;
+  const mono = new Float32Array(n);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const d = buf.getChannelData(c);
+    for (let i = 0; i < n; i++) mono[i] += d[i] / buf.numberOfChannels;
+  }
+  const totalSec = n / SR;
+  // 30ミリ秒ごとの音量
+  const frames = Math.floor(n / FRAME);
+  const rms = new Float32Array(frames);
+  for (let f = 0; f < frames; f++) {
+    let s = 0;
+    for (let i = f * FRAME, e = i + FRAME; i < e; i++) s += mono[i] * mono[i];
+    rms[f] = Math.sqrt(s / FRAME);
+  }
+  // 周りの雑音の大きさ（静かな方から2割の位置）を基準に、それよりはっきり大きい所を「声」とみなす
+  const sorted = Float32Array.from(rms).sort();
+  const floor = sorted[Math.floor(sorted.length * 0.2)] || 0;
+  const thr = Math.max(floor * 2.5, 0.006);
+  // 声の区間をつくる（1.5秒以内の途切れはつなげる・前後0.3秒の余白・0.3秒未満は捨てる）
+  const GAP = 50, PAD = 10, MIN = 10;
+  const segs = [];
+  let start = -1, last = -1;
+  for (let f = 0; f < frames; f++) {
+    if (rms[f] > thr) {
+      if (start < 0) start = f;
+      else if (f - last > GAP) { segs.push([start, last]); start = f; }
+      last = f;
+    }
+  }
+  if (start >= 0) segs.push([start, last]);
+  const kept = segs.filter(([a, b]) => b - a >= MIN).map(([a, b]) => [Math.max(0, a - PAD) * FRAME, Math.min(frames, b + PAD + 1) * FRAME]);
+  // つなげる（区間の間に0.25秒の間をはさむ）
+  const gap = Math.round(SR * 0.25);
+  const outLen = kept.reduce((s, [a, b]) => s + (b - a) + gap, 0);
+  const out = new Float32Array(outLen);
+  let o = 0;
+  for (const [a, b] of kept) { out.set(mono.subarray(a, b), o); o += (b - a) + gap; }
+  const speechSec = outLen / SR;
+  // 10分ごとに WAV にする
+  const chunks = [];
+  for (let i = 0; i < outLen; i += CHUNK_SEC * SR) chunks.push(toWav(out.subarray(i, Math.min(outLen, i + CHUNK_SEC * SR))));
+  return { totalSec, speechSec, chunks, segments: kept.length };
+}
+function toWav(samples) {
+  const b = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(b);
+  const w = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); w(8, "WAVE"); w(12, "fmt ");
+  v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, SR, true); v.setUint32(28, SR * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) { const s = Math.max(-1, Math.min(1, samples[i])); v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true); }
+  return new Blob([b], { type: "audio/wav" });
+}
+// 取り込んだ録音を、文字起こし用に準備する（抜き出せなかったら元の録音をそのまま使う）
+async function prepareImport(file) {
+  const { blob, ext } = normalizeAudio(file);
+  let info = null;
+  try { info = await extractSpeech(blob); } catch (e) { console.warn("extractSpeech", e); }
+  const sec = info ? info.totalSec : await audioDuration(blob);
+  const audio = { blob, ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
+  if (info && info.speechSec > 0.5) {
+    audio.txBlobs = info.chunks;          // 文字起こしに送るのは声のある部分だけ
+    audio.txSec = info.speechSec;
+  } else if (info) {
+    audio.txBlobs = []; audio.txSec = 0;  // 声が見つからなかった
+  } else if (blob.size > 24 * 1024 * 1024) {
+    audio.tooBig = true;                  // 抜き出しもできず、そのままでは大きすぎる
+  }
+  return audio;
+}
+// 文字起こし（分割されていれば順番に）。料金の記録もここで
+async function transcribeAudio(a) {
+  if (a.tooBig) throw new Error("録音が長すぎて文字起こしできません（25MBまで）");
+  const parts = a.txBlobs || [a.blob];
+  const texts = [];
+  for (const [i, b] of parts.entries()) {
+    const ext = a.txBlobs ? "wav" : a.ext;
+    const r = await apiFile("transcribe", b, `voice-${Date.now()}-${i}.${ext}`, { prompt: transcribeHint() });
+    texts.push(String(r.text || "").trim());
+  }
+  addUsage("file", a.txSec ?? a.sec ?? 0);
+  return texts.filter(Boolean).join("\n");
+}
+const trimNote = (a) => a.txSec != null && a.sec - a.txSec > 5
+  ? `録音${mmss(a.sec)}のうち声のある${mmss(a.txSec)}だけ文字起こし（約${fmtYen(yen(a.txSec, PRICE_FILE_PER_MIN))}）`
+  : `${mmss(a.sec)}・約${fmtYen(yen(a.txSec ?? a.sec, PRICE_FILE_PER_MIN))}`;
+
 // 録音した日（ファイルの日時）を日付プロパティ用に
 const fileDate = (f) => ymd(new Date(f.lastModified || Date.now()));
 
 async function importOne(file) {
-  const { blob, ext } = normalizeAudio(file);
-  const sec = await audioDuration(blob);
-  const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
+  toast("録音を読み込んでいます…");
+  const audio = await prepareImport(file);
+  audio.url = URL.createObjectURL(audio.blob);
   // 録音した日を日付に入れる（今日でなければ）
   const dp = state.schema?.properties.find((p) => p.type === "date");
   if (dp && fileDate(file) !== todayStr()) state.values[dp.name] = fileDate(file);
-  toast(`文字起こし中…（${mmss(sec)}・約${fmtYen(yen(sec, PRICE_FILE_PER_MIN))}）`);
   try {
-    if (!navigator.onLine) throw new Error("offline");
-    const { text } = await apiFile("transcribe", blob, `import-${Date.now()}.${ext}`, { prompt: transcribeHint() });
-    addUsage("file", sec);
-    if (!String(text || "").trim()) toast("声を聞き取れませんでした（録音は添付しておきます）", true);
-    else { placeTranscript(text); toast("取り込みました"); }
+    if (audio.txSec === 0) { toast("声が見つかりませんでした（録音は添付しておきます）", true); }
+    else {
+      if (!navigator.onLine) throw new Error("offline");
+      toast(`文字起こし中…（${trimNote(audio)}）`);
+      const text = await transcribeAudio(audio);
+      if (!text.trim()) toast("声を聞き取れませんでした（録音は添付しておきます）", true);
+      else { placeTranscript(text); toast(`取り込みました。${trimNote(audio)}`); }
+    }
   } catch (err) {
-    audio.needsText = true;
-    toast(isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）", !isNetErr(err));
+    audio.needsText = !audio.tooBig;
+    toast(audio.tooBig ? err.message
+      : isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）", !isNetErr(err));
   }
   state.audios.push(audio);
   autoCheckAudio();
@@ -1005,11 +1111,11 @@ async function importMany(files) {
   const meta = state.databases.find((d) => d.id === state.dbId);
   const dp = state.schema.properties.find((p) => p.type === "date");
   const audioCheck = state.schema.properties.find((p) => p.type === "checkbox" && p.name === AUTO_CHECK_ON_AUDIO);
-  let total = 0;
+  let total = 0, speech = 0;
+  toast(`${files.length}件の録音を読み込んでいます…`);
   for (const f of files) {
-    const { blob, ext } = normalizeAudio(f);
-    const sec = await audioDuration(blob);
-    total += sec;
+    const a = await prepareImport(f);
+    total += a.sec; speech += a.txSec ?? a.sec;
     const props = {};
     if (dp) props[dp.name] = fileDate(f);
     if (audioCheck) props[audioCheck.name] = true;
@@ -1021,11 +1127,11 @@ async function importMany(files) {
       text: "",
       props,
       images: [],
-      audios: [{ blob, ext, sec, keep: blob.size <= NOTION_FILE_LIMIT, needsText: true }],
+      audios: [{ ...a, needsText: a.txSec !== 0 && !a.tooBig }],
     });
   }
   updateOutboxBadge();
-  toast(`${files.length}件を取り込みました。1件ずつ文字起こしして${meta?.title || ""}に保存します（合計${mmss(total)}・約${fmtYen(yen(total, PRICE_FILE_PER_MIN))}）`);
+  toast(`${files.length}件を取り込みました。録音${mmss(total)}のうち声のある${mmss(speech)}だけ文字起こしして、${meta?.title || ""}に1件ずつ保存します（約${fmtYen(yen(speech, PRICE_FILE_PER_MIN))}）`);
   flushOutbox();
 }
 
@@ -1088,9 +1194,7 @@ async function sendNote(note) {
   for (const a of note.audios || []) {
     if (a.needsText) {
       // 圏外で録音したなどで、まだ文字起こししていない録音
-      const r = await apiFile("transcribe", a.blob, `voice-${Date.now()}.${a.ext}`, { prompt: transcribeHint() });
-      addUsage("file", a.sec || 0);
-      text = mergeTranscript(text, r.text || "");
+      text = mergeTranscript(text, await transcribeAudio(a));
     }
   }
   for (const f of note.images || []) {
