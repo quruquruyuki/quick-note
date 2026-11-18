@@ -260,7 +260,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-1";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-2";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1198,6 +1198,23 @@ $("sheetBody").addEventListener("change", (e) => {
 
 // 設定
 $("settingsBtn").onclick = renderSettings;
+async function checkOfflineReady() {
+  const el = $("offlineStatus");
+  if (!el) return;
+  let ctrl = false, cached = false;
+  try { ctrl = !!navigator.serviceWorker?.controller; } catch {}
+  try { cached = !!(await caches.match("index.html", { ignoreSearch: true }) || await caches.match("./", { ignoreSearch: true })); } catch {}
+  const urlOk = location.pathname.endsWith("/") || location.pathname.endsWith("index.html");
+  if (ctrl && cached && urlOk) {
+    el.innerHTML = `<span style="color:var(--ink)">準備OK</span>：圏外でもこのアプリを開けます`;
+  } else {
+    el.innerHTML = `<span style="color:var(--red)">未完了</span>（${[ctrl ? "" : "見張り役が未起動", cached ? "" : "画面を保存していない", urlOk ? "" : "URLの最後に / がない"].filter(Boolean).join("・")}）<br>`
+      + (urlOk ? "電波のある所でアプリを一度完全に終了して、開き直してください。"
+               : "ホーム画面のアイコンを削除して、https://quruquruyuki.github.io/quick-note/ （最後の / まで）をSafariで開いてから「ホーム画面に追加」し直してください。");
+  }
+  el.innerHTML += `<br><span style="font-size:11px">${esc(location.href)}</span>`;
+}
+
 function renderSettings() {
   openSheet(`<h2>データベース<button class="close">完了</button></h2>
     <p class="muted">★ 起動時に開く　／　チェック 切り替えに表示</p>
@@ -1226,6 +1243,9 @@ function renderSettings() {
     <div class="item"><span class="t">すぐ入力欄にカーソルを入れる</span>
       <input type="checkbox" class="toggle" id="autoFocusToggle" ${isAutoFocus() ? "checked" : ""}></div>
     <div class="sep"></div>
+    <h2>圏外で開く準備</h2>
+    <p class="muted" id="offlineStatus">確認中…</p>
+    <div class="sep"></div>
     <h2>録音のしかた</h2>
     <button class="item" data-mode="live"><span class="ic">${isLiveMode() ? "●" : "○"}</span>
       <span class="t">話しながら文字を表示<br><span class="s">約${fmtYen(PRICE_LIVE_PER_MIN * YEN_PER_USD)}/分・確認しながら話せる</span></span></button>
@@ -1236,6 +1256,7 @@ function renderSettings() {
     ${(() => { const u = usageSummary(); return `<p class="muted" style="font-size:var(--fs);color:var(--ink)">約${fmtYen(u.total)}</p>
       <p class="muted">リアルタイム ${u.liveMin.toFixed(1)}分 ／ 録音ファイル ${u.fileMin.toFixed(1)}分<br>この端末で使った分だけの目安です（1ドル=${YEN_PER_USD}円で計算・全アプリ共通のレート）。正確な金額はOpenAIの管理画面で確認できます。</p>`; })()}
     <p class="muted" style="text-align:center">Notion Quick ${APP_VERSION}</p>`);
+  checkOfflineReady();
 }
 
 // 保存されたノート（端末内の記録なので圏外でも見られる）
@@ -1448,8 +1469,11 @@ document.addEventListener("visibilitychange", () => {
   } else { prefetchLiveKey(); flushOutbox(); setTimeout(focusInput, 200); }
 });
 
+// URLが /quick-note（最後の / なし）だと、圏外用の見張り役（Service Worker）の範囲外になるので付け直す
+if (/\/quick-note$/.test(location.pathname)) location.replace(location.pathname + "/" + location.search);
+
 // 圏外でもアプリを開けるように、画面とライブラリを端末にとっておく
-if ("serviceWorker" in navigator && location.protocol === "https:") {
+if ("serviceWorker" in navigator && (location.protocol === "https:" || location.hostname === "localhost")) {
   navigator.serviceWorker.register("sw.js").catch(() => {});
 }
 
