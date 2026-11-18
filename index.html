@@ -133,7 +133,7 @@
     border-top: 1px solid var(--line); padding: 10px 16px calc(var(--safe-b) + 10px);
     display: flex; align-items: center; gap: 10px;
   }
-  .tool { width: 56px; height: 56px; border-radius: 14px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink2); background: #fff; }
+  .tool { width: 52px; height: 56px; border-radius: 14px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink2); background: #fff; }
   .tool:active { background: var(--hover); }
   #recBtn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); position: absolute; top: 11px; right: 11px; }
   #recBtn { position: relative; }
@@ -233,6 +233,9 @@
     <button class="tool" id="photoBtn" aria-label="写真">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="1.6"/><path d="M21 16l-5-5-9 9"/></svg>
     </button>
+    <button class="tool" id="importBtn" aria-label="録音ファイルを取り込む">
+      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="6" width="10" height="12" rx="3"/><path d="M9 6l.6-3h4.8l.6 3M9 18l.6 3h4.8l.6-3"/><path d="M12 9.5v4M10.3 11.8l1.7 1.7 1.7-1.7"/></svg>
+    </button>
     <button class="tool" id="recBtn" aria-label="録音">
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5.5 11a6.5 6.5 0 0 0 13 0M12 17.5V21"/></svg>
       <span class="dot"></span>
@@ -240,6 +243,7 @@
     <button id="saveBtn" disabled>保存</button>
   </div>
   <input type="file" id="photoInput" accept="image/*" multiple class="hidden">
+  <input type="file" id="audioInput" accept="audio/*,.m4a,.mp3,.wav,.aac,.caf" multiple class="hidden">
 </section>
 
 <div id="recPanel" class="hidden">
@@ -260,7 +264,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-2";     // 更新のたびに変える
+const APP_VERSION = "2026.11.18-3";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -937,6 +941,92 @@ function placeTranscript(text) {
   } else {
     insertText(fixed);
   }
+}
+
+// ===== 録音ファイルを取り込む（Apple Watch の Just Press Record などで録ったもの）=====
+// 1つ選んだとき … 入力欄に文字起こしを入れる（見直してから保存）
+// 2つ以上選んだとき … 1ファイル＝1件のノートとして、まとめて保存（文字起こしは送るときに行う）
+$("importBtn").onclick = () => $("audioInput").click();
+$("audioInput").addEventListener("change", async (e) => {
+  const files = [...e.target.files].sort((a, b) => a.lastModified - b.lastModified);
+  e.target.value = "";
+  if (!files.length) return;
+  if (files.length === 1) return importOne(files[0]);
+  return importMany(files);
+});
+
+// ファイルの拡張子と、Notion・文字起こしが受け付ける形式にそろえる
+function normalizeAudio(file) {
+  const ext = (file.name.match(/\.([a-z0-9]+)$/i)?.[1] || "m4a").toLowerCase();
+  const type = { m4a: "audio/mp4", mp4: "audio/mp4", aac: "audio/aac", mp3: "audio/mpeg", wav: "audio/wav", caf: "audio/x-caf" }[ext] || file.type || "audio/mp4";
+  return { blob: new File([file], file.name, { type }), ext };
+}
+// 録音の長さ（秒）を調べる。わからなければファイルサイズから目安を出す
+function audioDuration(blob) {
+  return new Promise((resolve) => {
+    const a = new Audio();
+    const url = URL.createObjectURL(blob);
+    const done = (v) => { URL.revokeObjectURL(url); resolve(v); };
+    a.preload = "metadata";
+    a.onloadedmetadata = () => done(isFinite(a.duration) ? a.duration : blob.size / 16000);
+    a.onerror = () => done(blob.size / 16000);
+    setTimeout(() => done(blob.size / 16000), 4000);
+    a.src = url;
+  });
+}
+// 録音した日（ファイルの日時）を日付プロパティ用に
+const fileDate = (f) => ymd(new Date(f.lastModified || Date.now()));
+
+async function importOne(file) {
+  const { blob, ext } = normalizeAudio(file);
+  const sec = await audioDuration(blob);
+  const audio = { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT };
+  // 録音した日を日付に入れる（今日でなければ）
+  const dp = state.schema?.properties.find((p) => p.type === "date");
+  if (dp && fileDate(file) !== todayStr()) state.values[dp.name] = fileDate(file);
+  toast(`文字起こし中…（${mmss(sec)}・約${fmtYen(yen(sec, PRICE_FILE_PER_MIN))}）`);
+  try {
+    if (!navigator.onLine) throw new Error("offline");
+    const { text } = await apiFile("transcribe", blob, `import-${Date.now()}.${ext}`, { prompt: transcribeHint() });
+    addUsage("file", sec);
+    if (!String(text || "").trim()) toast("声を聞き取れませんでした（録音は添付しておきます）", true);
+    else { placeTranscript(text); toast("取り込みました"); }
+  } catch (err) {
+    audio.needsText = true;
+    toast(isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）", !isNetErr(err));
+  }
+  state.audios.push(audio);
+  autoCheckAudio();
+  renderAttachments(); renderProps(); updateSaveBtn(); saveDraft();
+}
+
+async function importMany(files) {
+  if (!state.schema) return;
+  const meta = state.databases.find((d) => d.id === state.dbId);
+  const dp = state.schema.properties.find((p) => p.type === "date");
+  const audioCheck = state.schema.properties.find((p) => p.type === "checkbox" && p.name === AUTO_CHECK_ON_AUDIO);
+  let total = 0;
+  for (const f of files) {
+    const { blob, ext } = normalizeAudio(f);
+    const sec = await audioDuration(blob);
+    total += sec;
+    const props = {};
+    if (dp) props[dp.name] = fileDate(f);
+    if (audioCheck) props[audioCheck.name] = true;
+    await outbox.put({
+      id: `n${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      createdAt: f.lastModified || Date.now(),
+      dbId: state.dbId,
+      dbTitle: meta?.title || state.schema.title || "",
+      text: "",
+      props,
+      images: [],
+      audios: [{ blob, ext, sec, keep: blob.size <= NOTION_FILE_LIMIT, needsText: true }],
+    });
+  }
+  updateOutboxBadge();
+  toast(`${files.length}件を取り込みました。1件ずつ文字起こしして${meta?.title || ""}に保存します（合計${mmss(total)}・約${fmtYen(yen(total, PRICE_FILE_PER_MIN))}）`);
+  flushOutbox();
 }
 
 // 本文の最後に追記する
