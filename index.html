@@ -287,7 +287,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-8";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-9";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1139,7 +1139,8 @@ function audioDuration(blob) {
 const SR = 16000, FRAME = 480;               // 16kHz・30ミリ秒
 const ATTACH_LIMIT = 4.7 * 1024 * 1024;      // Notionに添付する1ファイルの大きさ（上限5MBに余裕をもたせて）
 const ATTACH_SR = 8000;                       // 添付用は電話くらいの音質（1ファイル約5分）
-const CHUNK_SEC = 600;                       // 1本10分（WAVで約19MB、文字起こしの上限25MB未満）
+const CHUNK_SEC = 240;                       // 1本4分まで（約7.5MB）。短く分けて同時に送ると速い
+const TX_PARALLEL = 4;                       // 文字起こしを同時に送る数
 async function extractSpeech(file) {
   const ab = await file.arrayBuffer();
   const Ctx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -1185,11 +1186,22 @@ async function extractSpeech(file) {
   const outLen = kept.reduce((s, [a, b]) => s + (b - a) + gap, 0);
   const out = new Float32Array(outLen);
   let o = 0;
-  for (const [a, b] of kept) { out.set(mono.subarray(a, b), o); o += (b - a) + gap; }
+  const cuts = [];   // 話の切れ目（ここで分けると言葉の途中で切れない）
+  for (const [a, b] of kept) { out.set(mono.subarray(a, b), o); o += (b - a) + gap; cuts.push(o); }
   const speechSec = outLen / SR;
   // 10分ごとに WAV にする
   const chunks = [];
-  for (let i = 0; i < outLen; i += CHUNK_SEC * SR) chunks.push(toWav(out.subarray(i, Math.min(outLen, i + CHUNK_SEC * SR))));
+  // 4分ごとに分ける。なるべく話の切れ目（無音のつなぎ目）で切る
+  const max = CHUNK_SEC * SR;
+  for (let i = 0; i < outLen;) {
+    let end = Math.min(outLen, i + max);
+    if (end < outLen) {
+      const c = cuts.filter((x) => x > i + max / 2 && x <= end).pop();
+      if (c) end = c;
+    }
+    chunks.push(toWav(out.subarray(i, end)));
+    i = end;
+  }
   return { totalSec, speechSec, chunks, segments: kept.length, speech: out };
 }
 // Notionに添付する用：声の部分だけを電話くらいの音質にして、4.7MBずつに分ける
@@ -1243,14 +1255,26 @@ async function prepareImport(file) {
 async function transcribeAudio(a) {
   if (a.tooBig) throw new Error("録音が長すぎて文字起こしできません（25MBまで）");
   const parts = a.txBlobs || [a.blob];
-  const texts = [];
-  for (const [i, b] of parts.entries()) {
-    const m = parts.length > 1 ? `文字起こし中 ${i + 1}/${parts.length}…` : "文字起こし中…";
-    if (state.saving) saveStep(m, parts.length > 1 ? i / parts.length : undefined); else busy(m, parts.length > 1 ? i / parts.length : undefined);
-    const ext = a.txBlobs ? "wav" : a.ext;
-    const r = await apiFile("transcribe", b, `voice-${Date.now()}-${i}.${ext}`, { prompt: transcribeHint() });
-    texts.push(String(r.text || "").trim());
-  }
+  const texts = new Array(parts.length).fill("");
+  const ext = a.txBlobs ? "wav" : a.ext;
+  const hint = transcribeHint();
+  let done = 0, next = 0;
+  const show = () => {
+    const m = parts.length > 1 ? `文字起こし中（${done}/${parts.length} 完了）…` : "文字起こし中…";
+    const f = parts.length > 1 ? done / parts.length : undefined;
+    if (state.saving) saveStep(m, f); else busy(m, f);
+  };
+  show();
+  // 何本かを同時に送る（順番は元どおりに並べ直す）
+  const worker = async () => {
+    while (next < parts.length) {
+      const i = next++;
+      const r = await apiFile("transcribe", parts[i], `voice-${Date.now()}-${i}.${ext}`, { prompt: hint });
+      texts[i] = String(r.text || "").trim();
+      done++; show();
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(TX_PARALLEL, parts.length) }, worker));
   addUsage("file", a.txSec ?? a.sec ?? 0);
   return texts.filter(Boolean).join("\n");
 }
