@@ -287,7 +287,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-7";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-8";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1322,6 +1322,7 @@ async function importManyInner(files) {
   const audioCheck = state.schema.properties.find((p) => p.type === "checkbox" && p.name === AUTO_CHECK_ON_AUDIO);
   let total = 0, speech = 0;
   toast(`${files.length}件の録音を読み込んでいます…`);
+  const ids = [];
   for (const [fi, f] of files.entries()) {
     busy(`録音を読み込み中 ${fi + 1}/${files.length}…`, fi / files.length);
     const a = await prepareImport(f);
@@ -1329,8 +1330,10 @@ async function importManyInner(files) {
     const props = {};
     if (dp) props[dp.name] = fileDate(f, a.sec);
     if (audioCheck) props[audioCheck.name] = true;
+    const nid = `n${Date.now()}${Math.random().toString(36).slice(2, 6)}`;
+    ids.push(nid);
     await outbox.put({
-      id: `n${Date.now()}${Math.random().toString(36).slice(2, 6)}`,
+      id: nid,
       createdAt: f.lastModified || Date.now(),
       dbId: state.dbId,
       dbTitle: meta?.title || state.schema.title || "",
@@ -1342,7 +1345,7 @@ async function importManyInner(files) {
   }
   updateOutboxBadge(); busy(null);
   toast(`${files.length}件を取り込みました。録音${mmss(total)}のうち声のある${mmss(speech)}だけ文字起こしして、${meta?.title || ""}に1件ずつ保存します（約${fmtYen(yen(speech, PRICE_FILE_PER_MIN))}）`);
-  flushOutbox();
+  await flushOutbox(true, ids);   // 自分で取り込んだ分だけ、すぐ送る
 }
 
 // 本文の最後に追記する
@@ -1385,8 +1388,8 @@ async function save() {
     note.lastError = isNetErr(err) ? "" : String(err?.message || err);
     try {
       await outbox.put(note);
-      toast(isNetErr(err) ? "電波がないので端末に保存しました。つながったら自動で送ります"
-                          : "送れなかったので端末に保存しました。あとで自動で送り直します", !isNetErr(err));
+      toast(isNetErr(err) ? "電波がないので端末に保存しました。電波のある所で、時計アイコンから送ってください"
+                          : "送れなかったので端末に保存しました。時計アイコンから送り直せます", !isNetErr(err));
       updateOutboxBadge();
     } catch (e2) {
       toast("保存できませんでした: " + (e2?.message || e2), true);
@@ -1508,14 +1511,14 @@ function addSent(note, url) {
 
 // 送信待ちを順番に送る（電波が戻ったとき・アプリを開いたときなど）
 let flushing = false;
-async function flushOutbox(manual = false) {
-  if (!manual && (work || state.saving)) return;   // 取り込み・保存の途中は、終わってから送る
+// 端末に保存したノートを送る（手動のときだけ。ids を渡したらそのノートだけ）
+async function flushOutbox(manual = false, ids = null) {
+  if (!manual) return;
   if (flushing || !navigator.onLine) { if (manual && !navigator.onLine) toast("まだ電波がありません", true); return; }
   flushing = true;
   let sent = 0;
   try {
-    // 自動で送り直すのは3回まで（失敗し続けるノートで料金がかさまないように）。それ以上は「保存されたノート」から手動で
-    const list = (await outbox.all()).filter((n) => manual || (n.tries || 0) < 3);
+    const list = (await outbox.all()).filter((n) => !ids || ids.includes(n.id));
     for (const [ni, note] of list.entries()) {
       try {
         note.fromOutbox = true;
@@ -1541,8 +1544,8 @@ async function flushOutbox(manual = false) {
     if (!$("sheet").classList.contains("hidden") && $("sheetBody").dataset.view === "notes") renderNotes();
   }
 }
-window.addEventListener("online", () => setTimeout(flushOutbox, 1500));
-setInterval(() => { if (navigator.onLine) flushOutbox(); }, 60 * 1000);
+// 端末に保存したノートは自動では送らない（料金の二重払いや、入力中に急に動き出すのを防ぐため）。
+// 時計アイコンの赤い数字で知らせて、「保存されたノート」の「今すぐ送る」で送る
 
 async function updateOutboxBadge() {
   try {
@@ -1850,7 +1853,7 @@ async function renderNotes() {
   };
   openSheet(`<h2>保存されたノート<button class="close">閉じる</button></h2>
     ${pending.length ? `<div class="note-section">未送信 ${pending.length}件<button class="primary small" id="flushNow">今すぐ送る</button></div>
-      <p class="muted">電波が戻ると自動で送ります。送るまでは、この端末の中に保存されています。</p>
+      <p class="muted">自動では送りません。電波のある所で「今すぐ送る」を押してください。送るまでは、この端末の中に保存されています（文字起こしやまとめが済んだ分は残るので、送り直しても二重にお金はかかりません）。</p>
       ${group(pending.slice().reverse(), "pending")}` : ""}
     <div class="note-section">送信済み</div>
     ${sent.length ? group(sent, "sent") : `<p class="muted">まだありません</p>`}`);
@@ -1991,7 +1994,6 @@ async function showApp() {
   if (state.defaultId) openDb(state.defaultId);
   setTimeout(prefetchLiveKey, 2500);
   updateOutboxBadge();
-  setTimeout(flushOutbox, 2000);
   setTimeout(focusInput, 300);
   try {
     await refreshDatabases();
@@ -2025,7 +2027,7 @@ document.addEventListener("visibilitychange", () => {
     saveDraft();
     // 別のアプリに切り替えたり画面を消したりしたら、録音は止める（つけっぱなしで料金がかかるのを防ぐ）
     if (rec && rec.mr.state !== "inactive") { rec.autoStopped = "アプリを離れたので、録音を止めました"; stopRec(false); }
-  } else { prefetchLiveKey(); flushOutbox(); setTimeout(focusInput, 200); }
+  } else { prefetchLiveKey(); setTimeout(focusInput, 200); }
 });
 
 // URLが /quick-note（最後の / なし）だと、圏外用の見張り役（Service Worker）の範囲外になるので付け直す
