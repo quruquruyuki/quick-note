@@ -273,7 +273,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-1";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-2";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1012,13 +1012,20 @@ async function onRecStop() {
       toast("声を聞き取れませんでした。マイクが使えているか確認して、もう一度録音してください", true);
       return;
     }
-    placeTranscript(text);
+    if (isImportSummary()) {
+      $("recStatus").textContent = "AIでまとめ中…";
+      try { placeSummary(await summarizeToText(text)); }
+      catch (e2) {
+        if (isNetErr(e2) && audio) { audio.needsSummary = true; audio.pendingText = text; toast("電波がないので、まとめは送信するときに行います"); }
+        else { placeTranscript(text); toast("まとめに失敗したので、文字起こしだけ入れました: " + e2.message, true); }
+      }
+    } else placeTranscript(text);
     if (audio) { state.audios.push(audio); autoCheckAudio(); }
     renderAttachments(); renderProps(); updateSaveBtn();
   } catch (e) {
     // 文字起こしに失敗しても録音は残す
     // 文字起こしできなかった録音は残しておき、保存して送るときに文字起こしする（圏外でも録音は失わない）
-    if (audio) { audio.needsText = true; state.audios.push(audio); autoCheckAudio(); }
+    if (audio) { audio.needsText = true; audio.summarize = isImportSummary(); state.audios.push(audio); autoCheckAudio(); }
     renderAttachments(); renderProps(); updateSaveBtn();
     toast(isNetErr(e) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）: " + e.message, !isNetErr(e));
   } finally {
@@ -1703,7 +1710,7 @@ function renderSettings() {
       <span class="t">話しながら文字を表示<br><span class="s">約${fmtYen(PRICE_LIVE_PER_MIN * YEN_PER_USD)}/分・確認しながら話せる</span></span></button>
     <button class="item" data-mode="file"><span class="ic">${isLiveMode() ? "○" : "●"}</span>
       <span class="t">録音だけ・止めたら文字起こし<br><span class="s">約${fmtYen(PRICE_FILE_PER_MIN * YEN_PER_USD)}/分・安い（話している間は文字が出ない）</span></span></button>
-    <div class="item"><span class="t" style="white-space:normal">取り込んだ録音をAIでまとめる<br><span class="s">要約・話題・先生の反応・次回・Veeva用の文など（1件 約3〜5円）</span></span>
+    <div class="item"><span class="t" style="white-space:normal">録音をAIでまとめる<br><span class="s">要約・話題・先生の反応・次回・Veeva用の文など（1件 約3〜5円）</span></span>
       <input type="checkbox" class="toggle" id="importSummaryToggle" ${isImportSummary() ? "checked" : ""}></div>
     <div class="sep"></div>
     <h2>今月の文字起こし料金（目安）</h2>
