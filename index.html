@@ -58,9 +58,19 @@
   #app { min-height: 100dvh; display: flex; flex-direction: column; }
   #scroller { flex: 1; }
   header {
-    position: sticky; top: 0; z-index: 5; background: rgba(255,255,255,.94); backdrop-filter: blur(10px);
+    position: sticky; top: 0; z-index: 5; background: rgba(255,255,255,.94); -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
     padding: calc(var(--safe-t) + 8px) 12px 8px; display: flex; align-items: center; gap: 4px;
   }
+  /* 作業中の表示（ヘッダーのすぐ下） */
+  .busy { position: absolute; left: 0; right: 0; top: 100%; background: rgba(255,255,255,.96); border-bottom: 1px solid var(--line); padding: 6px 16px 7px; font-size: 12.5px; color: var(--sub); }
+  .busy-row { display: flex; align-items: center; gap: 8px; }
+  .busy-row #busyText { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink2); }
+  .busy-row #busyTime { font-variant-numeric: tabular-nums; color: var(--faint); }
+  .busy-spin { width: 12px; height: 12px; border: 2px solid var(--line); border-top-color: var(--ink); border-radius: 50%; animation: spin .8s linear infinite; flex: none; }
+  .busy-track { height: 3px; background: var(--line); border-radius: 2px; margin-top: 5px; overflow: hidden; position: relative; }
+  .busy-track i { position: absolute; left: 0; top: 0; bottom: 0; background: var(--ink); border-radius: 2px; transition: width .3s; }
+  .busy-track.indet i { width: 30% !important; animation: indet 1.2s ease-in-out infinite; }
+  @keyframes indet { 0% { left: -30%; } 100% { left: 100%; } }
   #dbBtn { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 6px; min-width: 0; color: var(--ink); font-weight: 600; font-size: var(--fs); }
   #dbBtn:active, .icon-btn:active { background: var(--hover); }
   #dbIcon { font-size: var(--fs); line-height: 1; color: var(--sub); }
@@ -228,6 +238,7 @@
     <button class="icon-btn" id="settingsBtn" aria-label="設定">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8"/><circle cx="12" cy="12" r="1.8"/><circle cx="19" cy="12" r="1.8"/></svg>
     </button>
+    <div id="busy" class="busy hidden"><div class="busy-row"><span class="busy-spin"></span><span id="busyText"></span><span id="busyTime"></span></div><div class="busy-track indet" id="busyTrack"><i id="busyFill"></i></div></div>
   </header>
 
   <main>
@@ -273,7 +284,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-4";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-5";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -341,6 +352,24 @@ const PAGE_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" s
 const dbIconHtml = (d) => d?.icon ? esc(d.icon) : PAGE_ICON;
 
 let toastTimer;
+// ===== 作業中の表示（ステータスバー）=====
+// busy("文字起こし中 1/3", 1/3) … 進み具合つき ／ busy("まとめ中") … 進み具合なし ／ busy(null) … 消す
+let busyStart = 0, busyTimer = 0;
+function busy(msg, frac) {
+  const el = $("busy");
+  if (!el) return;
+  if (!msg) { el.classList.add("hidden"); clearInterval(busyTimer); busyTimer = 0; busyStart = 0; return; }
+  if (!busyStart) busyStart = Date.now();
+  $("busyText").textContent = msg;
+  const track = $("busyTrack");
+  if (typeof frac === "number") { track.classList.remove("indet"); $("busyFill").style.width = Math.max(4, Math.min(100, frac * 100)) + "%"; }
+  else { track.classList.add("indet"); $("busyFill").style.width = ""; }
+  el.classList.remove("hidden");
+  const tick = () => { const s = Math.floor((Date.now() - busyStart) / 1000); $("busyTime").textContent = s >= 3 ? `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}` : ""; };
+  tick();
+  if (!busyTimer) busyTimer = setInterval(tick, 1000);
+}
+
 function toast(msg, bad = false, link, action) {
   document.querySelectorAll(".toast").forEach((t) => t.remove());
   const t = document.createElement("div");
@@ -592,7 +621,7 @@ function renderAttachments() {
 }
 
 // 保存の途中経過をボタンに出す（長い録音は時間がかかるので）
-function saveStep(msg) { state.saveStep = msg; if (state.saving) $("saveBtn").textContent = msg; }
+function saveStep(msg, frac) { state.saveStep = msg; if (state.saving) $("saveBtn").textContent = msg; busy(msg, frac); }
 function updateSaveBtn() {
   const has = getText().trim() || state.images.length || state.audios.some((a) => a.keep || a.needsText || a.needsSummary);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
@@ -1007,7 +1036,7 @@ async function onRecStop() {
     // リアルタイムが使えなかったとき、またはつながる前に話し始めていたとき（冒頭が抜けている）は、
     // 最初から取れている録音ファイルを文字起こしして、それを使う
     if (audio && (!text || live.missedStart)) {
-      $("recStatus").textContent = "AIで文字起こし中…";
+      $("recStatus").textContent = "AIで文字起こし中…"; busy("文字起こし中…");
       text = (await apiFile("transcribe", blob, `voice-${Date.now()}.${ext}`, { prompt: transcribeHint() })).text || "";
       addUsage("file", sec);
       if (lt && live.missedStart) {
@@ -1021,7 +1050,7 @@ async function onRecStop() {
       return;
     }
     if (isImportSummary()) {
-      $("recStatus").textContent = "AIでまとめ中…";
+      $("recStatus").textContent = "AIでまとめ中…"; busy("AIでまとめ中…（数十秒かかります）");
       try { placeSummary(await summarizeToText(text)); }
       catch (e2) {
         if (isNetErr(e2) && audio) { audio.needsSummary = true; audio.pendingText = text; toast("電波がないので、まとめは送信するときに行います"); }
@@ -1037,6 +1066,7 @@ async function onRecStop() {
     renderAttachments(); renderProps(); updateSaveBtn();
     toast(isNetErr(e) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）: " + e.message, !isNetErr(e));
   } finally {
+    busy(null);
     $("recPanel").classList.add("hidden");
     rec = null;
   }
@@ -1174,6 +1204,7 @@ function toWav(samples, sr = SR) {
 // 取り込んだ録音を、文字起こし用に準備する（抜き出せなかったら元の録音をそのまま使う）
 async function prepareImport(file) {
   const { blob, ext } = normalizeAudio(file);
+  busy(`録音を読み込み、声の部分を探しています…（${fmtSize(blob.size)}）`);
   let info = null;
   try { info = await extractSpeech(blob); } catch (e) { console.warn("extractSpeech", e); }
   const sec = info ? info.totalSec : await audioDuration(blob);
@@ -1197,7 +1228,8 @@ async function transcribeAudio(a) {
   const parts = a.txBlobs || [a.blob];
   const texts = [];
   for (const [i, b] of parts.entries()) {
-    if (state.saving) saveStep(parts.length > 1 ? `文字起こし中 ${i + 1}/${parts.length}…` : "文字起こし中…");
+    const m = parts.length > 1 ? `文字起こし中 ${i + 1}/${parts.length}…` : "文字起こし中…";
+    if (state.saving) saveStep(m, parts.length > 1 ? i / parts.length : undefined); else busy(m, parts.length > 1 ? i / parts.length : undefined);
     const ext = a.txBlobs ? "wav" : a.ext;
     const r = await apiFile("transcribe", b, `voice-${Date.now()}-${i}.${ext}`, { prompt: transcribeHint() });
     texts.push(String(r.text || "").trim());
@@ -1236,7 +1268,7 @@ async function importOne(file) {
       const text = await transcribeAudio(audio);
       if (!text.trim()) toast("声を聞き取れませんでした（録音は添付しておきます）", true);
       else if (isImportSummary()) {
-        toast("まとめています…");
+        toast("まとめています…"); busy("AIでまとめ中…（数十秒かかります）");
         try { placeSummary(await summarizeToText(text)); toast(`まとめました。${trimNote(audio)}`); }
         catch (e2) {
           if (isNetErr(e2)) { audio.needsSummary = true; audio.pendingText = text; toast("電波がないので、まとめは送信するときに行います"); }
@@ -1252,6 +1284,7 @@ async function importOne(file) {
       : isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）: " + (err?.message || err), !isNetErr(err));
     console.warn("importOne", err);
   }
+  busy(null);
   state.audios.push(audio);
   autoCheckAudio();
   renderAttachments(); renderProps(); updateSaveBtn(); saveDraft();
@@ -1264,7 +1297,8 @@ async function importMany(files) {
   const audioCheck = state.schema.properties.find((p) => p.type === "checkbox" && p.name === AUTO_CHECK_ON_AUDIO);
   let total = 0, speech = 0;
   toast(`${files.length}件の録音を読み込んでいます…`);
-  for (const f of files) {
+  for (const [fi, f] of files.entries()) {
+    busy(`録音を読み込み中 ${fi + 1}/${files.length}…`, fi / files.length);
     const a = await prepareImport(f);
     total += a.sec; speech += a.txSec ?? a.sec;
     const props = {};
@@ -1281,7 +1315,7 @@ async function importMany(files) {
       audios: [{ ...a, needsText: a.txSec !== 0 && !a.tooBig, summarize: isImportSummary() }],
     });
   }
-  updateOutboxBadge();
+  updateOutboxBadge(); busy(null);
   toast(`${files.length}件を取り込みました。録音${mmss(total)}のうち声のある${mmss(speech)}だけ文字起こしして、${meta?.title || ""}に1件ずつ保存します（約${fmtYen(yen(speech, PRICE_FILE_PER_MIN))}）`);
   flushOutbox();
 }
@@ -1330,11 +1364,11 @@ async function save() {
       updateOutboxBadge();
     } catch (e2) {
       toast("保存できませんでした: " + (e2?.message || e2), true);
-      state.saving = false; state.saveStep = ""; updateSaveBtn();
+      state.saving = false; state.saveStep = ""; busy(null); updateSaveBtn();
       return;   // 端末にも保存できなかったときは、画面の内容を消さない
     }
   }
-  state.saving = false; state.saveStep = "";
+  state.saving = false; state.saveStep = ""; busy(null);
   resetForm();
   updateSaveBtn();
 }
@@ -1368,7 +1402,7 @@ async function sendNote(note) {
       // 声の部分だけを小さくした録音（分かれていれば「1of2」「2of2」の順に）
       const stamp = Date.now();
       for (const [i, p] of a.parts.entries()) {
-        saveStep(`録音を送信中 ${i + 1}/${a.parts.length}…`);
+        saveStep(`録音を送信中 ${i + 1}/${a.parts.length}…`, i / a.parts.length);
         const name = a.parts.length > 1 ? `voice-${stamp}-${i + 1}of${a.parts.length}.wav` : `voice-${stamp}.wav`;
         try { const { id } = await apiFile("upload", p.blob, name); attachments.push({ id, kind: "audio", name }); }
         catch (err) { if (isNetErr(err)) throw err; failed.push(`音声${i + 1}（${fmtSize(p.blob.size)}）`); }
@@ -1447,8 +1481,10 @@ async function flushOutbox(manual = false) {
   flushing = true;
   let sent = 0;
   try {
-    for (const note of await outbox.all()) {
+    const list = await outbox.all();
+    for (const [ni, note] of list.entries()) {
       try {
+        if (!state.saving) busy(`端末に保存したノートを送信中 ${ni + 1}/${list.length}…`, ni / list.length);
         const res = await sendNote(note);
         await outbox.del(note.id);
         addSent(note, res.url);
@@ -1461,6 +1497,7 @@ async function flushOutbox(manual = false) {
     }
   } finally {
     flushing = false;
+    if (!state.saving) busy(null);
     updateOutboxBadge();
     if (sent) { toast(`端末に保存していた${sent}件をNotionに送りました`); refreshNames(state.dbId); }
     if (!$("sheet").classList.contains("hidden") && $("sheetBody").dataset.view === "notes") renderNotes();
