@@ -145,6 +145,9 @@
   }
   .tool { width: 52px; height: 56px; border-radius: 14px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; color: var(--ink2); background: #fff; }
   .tool:active { background: var(--hover); }
+  /* 読み込み・文字起こし・まとめ・保存の途中は、ほかのボタンを薄くして押しても何も起こらないように */
+  body.working .tool, body.working #clearBtn, body.working #dbBtn { opacity: .35; }
+  body.working #saveBtn:not(:disabled) { opacity: .45; }
   #recBtn .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); position: absolute; top: 11px; right: 11px; }
   #recBtn { position: relative; }
   #saveBtn { flex: 1; height: 56px; border-radius: 14px; background: var(--ink); color: #fff; font-weight: 600; font-size: var(--fs); }
@@ -284,7 +287,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-6";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-7";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -352,6 +355,18 @@ const PAGE_ICON = '<svg width="17" height="17" viewBox="0 0 24 24" fill="none" s
 const dbIconHtml = (d) => d?.icon ? esc(d.icon) : PAGE_ICON;
 
 let toastTimer;
+// ===== 作業中は、ほかの操作を受け付けない =====
+let work = 0;
+function beginWork() { work++; document.body.classList.add("working"); }
+function endWork() { work = Math.max(0, work - 1); if (!work) document.body.classList.remove("working"); }
+// 作業中なら「文字起こし中です」などと出して true を返す（呼んだ側は何もしない）
+function blocked() {
+  if (!work && !state.saving) return false;
+  const now = ($("busyText").textContent || "").replace(/^端末の.*?：/, "").replace(/[…（(].*$/, "").trim();
+  toast(`${now || "処理中"}です。終わるまで少しお待ちください`);
+  return true;
+}
+
 // ===== 作業中の表示（ステータスバー）=====
 // busy("文字起こし中 1/3", 1/3) … 進み具合つき ／ busy("まとめ中") … 進み具合なし ／ busy(null) … 消す
 let busyStart = 0, busyTimer = 0, busyPrefix = "";
@@ -692,7 +707,7 @@ function autoCheckAudio() {
 }
 
 // ===== 写真 =====
-$("photoBtn").onclick = () => $("photoInput").click();
+$("photoBtn").onclick = () => { if (!blocked()) $("photoInput").click(); };
 $("photoInput").addEventListener("change", async (e) => {
   for (const f of [...e.target.files]) {
     try {
@@ -724,6 +739,7 @@ function compressImage(file) {
 }
 
 $("attachments").addEventListener("click", (e) => {
+  if ((e.target.closest("[data-del-img]") || e.target.closest("[data-del-audio]")) && blocked()) return;
   const di = e.target.closest("[data-del-img]");
   if (di) { const [im] = state.images.splice(+di.dataset.delImg, 1); URL.revokeObjectURL(im.url); renderAttachments(); updateSaveBtn(); return; }
   const da = e.target.closest("[data-del-audio]");
@@ -743,7 +759,7 @@ function pickMime() {
 }
 const extOf = (mime) => mime.includes("mp4") ? "m4a" : mime.includes("ogg") ? "ogg" : mime.includes("webm") ? "webm" : "m4a";
 
-$("recBtn").onclick = startRec;
+$("recBtn").onclick = () => { if (!blocked()) startRec(); };
 async function startRec() {
   if (!window.MediaRecorder) { toast("このブラウザは録音に対応していません", true); return; }
   let stream;
@@ -1013,6 +1029,7 @@ async function onRecStop() {
   const sec = (Date.now() - r.start) / 1000;
   stopMeter();
   if (r.cancelled) { stopLive(); r.stream.getTracks().forEach((t) => t.stop()); $("recPanel").classList.add("hidden"); rec = null; return; }
+  beginWork();
   $("recStop").classList.add("hidden"); $("recCancel").classList.add("hidden"); $("recSpin").classList.remove("hidden");
   $("recLabel").querySelector("i").classList.add("hidden");
   $("recStatus").textContent = "仕上げ中…";
@@ -1066,7 +1083,7 @@ async function onRecStop() {
     renderAttachments(); renderProps(); updateSaveBtn();
     toast(isNetErr(e) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）: " + e.message, !isNetErr(e));
   } finally {
-    busy(null);
+    busy(null); endWork();
     $("recPanel").classList.add("hidden");
     rec = null;
   }
@@ -1087,7 +1104,7 @@ function placeTranscript(text) {
 // ===== 録音ファイルを取り込む（Apple Watch の Just Press Record などで録ったもの）=====
 // 1つ選んだとき … 入力欄に文字起こしを入れる（見直してから保存）
 // 2つ以上選んだとき … 1ファイル＝1件のノートとして、まとめて保存（文字起こしは送るときに行う）
-$("importBtn").onclick = () => $("audioInput").click();
+$("importBtn").onclick = () => { if (!blocked()) $("audioInput").click(); };
 $("audioInput").addEventListener("change", async (e) => {
   const files = [...e.target.files].sort((a, b) => a.lastModified - b.lastModified);
   e.target.value = "";
@@ -1204,7 +1221,7 @@ function toWav(samples, sr = SR) {
 // 取り込んだ録音を、文字起こし用に準備する（抜き出せなかったら元の録音をそのまま使う）
 async function prepareImport(file) {
   const { blob, ext } = normalizeAudio(file);
-  busy(`録音を読み込み、声の部分を探しています…（${fmtSize(blob.size)}）`);
+  busy(`読み込み中（声の部分を探しています・${fmtSize(blob.size)}）`);
   let info = null;
   try { info = await extractSpeech(blob); } catch (e) { console.warn("extractSpeech", e); }
   const sec = info ? info.totalSec : await audioDuration(blob);
@@ -1254,6 +1271,10 @@ function recStartOf(f, sec) {
 const fileDate = (f, sec) => isoLocal(recStartOf(f, sec));
 
 async function importOne(file) {
+  beginWork();
+  try { await importOneInner(file); } finally { endWork(); busy(null); }
+}
+async function importOneInner(file) {
   toast("録音を読み込んでいます…");
   const audio = await prepareImport(file);
   audio.url = URL.createObjectURL(audio.blob);
@@ -1292,6 +1313,10 @@ async function importOne(file) {
 
 async function importMany(files) {
   if (!state.schema) return;
+  beginWork();
+  try { await importManyInner(files); } finally { endWork(); busy(null); }
+}
+async function importManyInner(files) {
   const meta = state.databases.find((d) => d.id === state.dbId);
   const dp = state.schema.properties.find((p) => p.type === "date");
   const audioCheck = state.schema.properties.find((p) => p.type === "checkbox" && p.name === AUTO_CHECK_ON_AUDIO);
@@ -1331,6 +1356,7 @@ function insertText(t) {
 $("saveBtn").onclick = save;
 async function save() {
   if (state.saving) return;
+  if (work) { blocked(); return; }
   state.saving = true; state.saveStep = ""; updateSaveBtn();
   const meta = state.databases.find((d) => d.id === state.dbId);
   // いま画面にある内容を1件のノートとしてまとめる
@@ -1483,6 +1509,7 @@ function addSent(note, url) {
 // 送信待ちを順番に送る（電波が戻ったとき・アプリを開いたときなど）
 let flushing = false;
 async function flushOutbox(manual = false) {
+  if (!manual && (work || state.saving)) return;   // 取り込み・保存の途中は、終わってから送る
   if (flushing || !navigator.onLine) { if (manual && !navigator.onLine) toast("まだ電波がありません", true); return; }
   flushing = true;
   let sent = 0;
@@ -1506,8 +1533,9 @@ async function flushOutbox(manual = false) {
       }
     }
   } finally {
-    flushing = false; busyPrefix = "";
-    if (!state.saving) busy(null);
+    flushing = false;
+    if (busyPrefix && !state.saving && !work) busy(null);   // 自分が出した表示だけ消す（ほかの作業の表示は残す）
+    busyPrefix = "";
     updateOutboxBadge();
     if (sent) { toast(`端末に保存していた${sent}件をNotionに送りました`); refreshNames(state.dbId); }
     if (!$("sheet").classList.contains("hidden") && $("sheetBody").dataset.view === "notes") renderNotes();
@@ -1540,6 +1568,7 @@ function resetForm() {
 
 // ===== クリア（間違えて押しても「元に戻す」で戻せる）=====
 $("clearBtn").onclick = () => {
+  if (blocked()) return;
   if (!state.schema) return;
   const snap = {
     dbId: state.dbId, text: getText(), images: state.images.slice(), audios: state.audios.slice(),
@@ -1569,6 +1598,7 @@ $("sheet").addEventListener("click", (e) => { if (e.target.id === "sheet" || e.t
 
 // DB 切り替え
 $("dbBtn").onclick = () => {
+  if (blocked()) return;
   const list = visibleDbs();
   openSheet(`<h2>保存先</h2>
     ${list.length ? list.map((d) => `<button class="item" data-pick="${d.id}">
