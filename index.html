@@ -287,7 +287,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-9";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-10";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -1238,7 +1238,15 @@ async function prepareImport(file) {
   try { info = await extractSpeech(blob); } catch (e) { console.warn("extractSpeech", e); }
   const sec = info ? info.totalSec : await audioDuration(blob);
   const audio = { blob, ext, sec, keep: blob.size <= ATTACH_LIMIT };   // keep は下で設定に合わせる
-  if (info && info.speechSec > 0.5) {
+  // ほとんど話している録音（無音が少ない）は、元のファイルをそのまま送る方が速い（圧縮されていて小さいので）。
+  // 料金の差は無音の分だけ。長い録音（20分超）は一度に送れないので、声の部分を分けて送る
+  const silence = info ? info.totalSec - info.speechSec : 0;
+  const sendOriginal = info && info.speechSec > 0.5 && blob.size <= 24 * 1024 * 1024 && info.totalSec <= 20 * 60
+    && (silence <= 60 || silence <= info.totalSec * 0.2);
+  if (sendOriginal) {
+    audio.txSec = info.totalSec;          // 元のファイルを1回で文字起こし
+    if (!audio.keep) { audio.parts = attachParts(info.speech); audio.keep = true; }
+  } else if (info && info.speechSec > 0.5) {
     audio.txBlobs = info.chunks;          // 文字起こしに送るのは声のある部分だけ
     audio.txSec = info.speechSec;
     // 元の録音が大きすぎてNotionに付けられないときは、声の部分だけを小さくして添付する
