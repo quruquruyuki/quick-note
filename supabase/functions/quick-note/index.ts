@@ -274,7 +274,7 @@ const VISIT_PROMPT = `以下は製薬会社のMRが医師と面談したとき�
 患者の氏名など、個人が特定できる情報は書かないでください（「70代男性」のような書き方にとどめる）。
 副作用・有害事象の可能性がある発言（薬を使った患者に起きた好ましくない症状や検査値の変化など）は、小さなことでも必ず ae に抜き出してください。
 施設名は、下の「施設名の候補」に当てはまるものがあればその表記で書いてください。分からなければ空にしてください。
-次のJSONだけを出力してください（前後に説明文やコードブロックを付けない）:
+結果は save_note ツールで返してください。項目は次の通りです:
 {
   "facility": "施設名（クリニック名・病院名だけ。分からなければ空）",
   "doctor": "診療科・先生名（分かる範囲。不明なら空）",
@@ -288,6 +288,22 @@ const VISIT_PROMPT = `以下は製薬会社のMRが医師と面談したとき�
   "veeva": "Veevaのコール記録にそのまま貼れる簡潔な記録文（200〜400字、体言止め・箇条書き可）"
 }`;
 
+// まとめの形（ツールの入力として受け取ると、必ず正しいJSONで返ってくる）
+const strArr = { type: "array", items: { type: "string" } };
+const NOTE_TOOL = {
+  name: "save_note",
+  description: "面談ノートを保存する",
+  input_schema: {
+    type: "object",
+    properties: {
+      facility: { type: "string" }, doctor: { type: "string" }, summary: { type: "string" },
+      topics: { type: "array", items: { type: "object", properties: { heading: { type: "string" }, points: strArr }, required: ["heading", "points"] } },
+      reaction: strArr, usage: strArr, requests: strArr, next: strArr, ae: strArr, veeva: { type: "string" },
+    },
+    required: ["facility", "doctor", "summary", "topics", "reaction", "usage", "requests", "next", "ae", "veeva"],
+  },
+};
+
 async function summarize(transcript: string, names: string[], terms: string) {
   if (!transcript.trim()) throw new HttpError(400, "文字起こしが空です");
   const model = await setting("quick-note", "summary_model", "claude-sonnet-5-5");
@@ -299,17 +315,26 @@ ${transcript.slice(0, 60000)}`;
   const d = await fetchJson("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: "user", content: user }] }),
+    body: JSON.stringify({
+      model, max_tokens: 4000, messages: [{ role: "user", content: user }],
+      tools: [NOTE_TOOL], tool_choice: { type: "tool", name: "save_note" },
+    }),
   }, "まとめ（Claude）", 3);
   // deno-lint-ignore no-explicit-any
-  const raw = (d.content ?? []).map((c: any) => c.text ?? "").join("");
-  const m = raw.match(/\{[\s\S]*\}/);
-  if (!m) throw new HttpError(502, "まとめの形式で返ってきませんでした");
+  let result = (d.content ?? []).find((c: any) => c.type === "tool_use")?.input;
+  if (!result) {
+    // 念のため：文章で返ってきたときはJSONを探して読む
+    // deno-lint-ignore no-explicit-any
+    const raw = (d.content ?? []).map((c: any) => c.text ?? "").join("");
+    const m = raw.match(/\{[\s\S]*\}/);
+    try { result = m ? JSON.parse(m[0]) : null; } catch { result = null; }
+    if (!result) throw new HttpError(502, "まとめの形式で返ってきませんでした。もう一度お試しください");
+  }
   // 料金の目安（共通設定の料金表から）
   // deno-lint-ignore no-explicit-any
   const price = ((await appSettings("quick-note"))["global.prices"] as any)?.[model];
   const usd = price ? ((d.usage?.input_tokens ?? 0) * price.in + (d.usage?.output_tokens ?? 0) * price.out) / 1e6 : null;
-  return { result: JSON.parse(m[0]), usd, model };
+  return { result, usd, model };
 }
 
 // ── 保存 ──

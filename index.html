@@ -273,7 +273,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-3";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-4";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -591,10 +591,12 @@ function renderAttachments() {
   $("attachments").innerHTML = html;
 }
 
+// 保存の途中経過をボタンに出す（長い録音は時間がかかるので）
+function saveStep(msg) { state.saveStep = msg; if (state.saving) $("saveBtn").textContent = msg; }
 function updateSaveBtn() {
   const has = getText().trim() || state.images.length || state.audios.some((a) => a.keep || a.needsText || a.needsSummary);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
-  $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
+  $("saveBtn").textContent = state.saving ? (state.saveStep || "保存中…") : "保存";
   $("clearBtn").disabled = state.saving || !hasAnyInput();
 }
 // 何か入力されているか（クリアボタンを押せるか）
@@ -1195,6 +1197,7 @@ async function transcribeAudio(a) {
   const parts = a.txBlobs || [a.blob];
   const texts = [];
   for (const [i, b] of parts.entries()) {
+    if (state.saving) saveStep(parts.length > 1 ? `文字起こし中 ${i + 1}/${parts.length}…` : "文字起こし中…");
     const ext = a.txBlobs ? "wav" : a.ext;
     const r = await apiFile("transcribe", b, `voice-${Date.now()}-${i}.${ext}`, { prompt: transcribeHint() });
     texts.push(String(r.text || "").trim());
@@ -1246,7 +1249,8 @@ async function importOne(file) {
     audio.needsText = !audio.tooBig;
     audio.summarize = isImportSummary();
     toast(audio.tooBig ? err.message
-      : isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）", !isNetErr(err));
+      : isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）: " + (err?.message || err), !isNetErr(err));
+    console.warn("importOne", err);
   }
   state.audios.push(audio);
   autoCheckAudio();
@@ -1293,7 +1297,7 @@ function insertText(t) {
 $("saveBtn").onclick = save;
 async function save() {
   if (state.saving) return;
-  state.saving = true; updateSaveBtn();
+  state.saving = true; state.saveStep = ""; updateSaveBtn();
   const meta = state.databases.find((d) => d.id === state.dbId);
   // いま画面にある内容を1件のノートとしてまとめる
   const note = {
@@ -1326,11 +1330,11 @@ async function save() {
       updateOutboxBadge();
     } catch (e2) {
       toast("保存できませんでした: " + (e2?.message || e2), true);
-      state.saving = false; updateSaveBtn();
+      state.saving = false; state.saveStep = ""; updateSaveBtn();
       return;   // 端末にも保存できなかったときは、画面の内容を消さない
     }
   }
-  state.saving = false;
+  state.saving = false; state.saveStep = "";
   resetForm();
   updateSaveBtn();
 }
@@ -1345,6 +1349,7 @@ async function sendNote(note) {
     const t = a.needsText ? await transcribeAudio(a) : a.needsSummary ? a.pendingText : "";
     if (!t) continue;
     if (a.summarize || a.needsSummary) {
+      saveStep("AIでまとめ中…");
       let sum = "";
       try { sum = await summarizeToText(t); } catch (err) { if (isNetErr(err)) throw err; }
       if (sum) {
@@ -1363,6 +1368,7 @@ async function sendNote(note) {
       // 声の部分だけを小さくした録音（分かれていれば「1of2」「2of2」の順に）
       const stamp = Date.now();
       for (const [i, p] of a.parts.entries()) {
+        saveStep(`録音を送信中 ${i + 1}/${a.parts.length}…`);
         const name = a.parts.length > 1 ? `voice-${stamp}-${i + 1}of${a.parts.length}.wav` : `voice-${stamp}.wav`;
         try { const { id } = await apiFile("upload", p.blob, name); attachments.push({ id, kind: "audio", name }); }
         catch (err) { if (isNetErr(err)) throw err; failed.push(`音声${i + 1}（${fmtSize(p.blob.size)}）`); }
@@ -1370,11 +1376,13 @@ async function sendNote(note) {
       continue;
     }
     try {
+      saveStep("録音を送信中…");
       const name = `voice-${Date.now()}.${a.ext}`;
       const { id } = await apiFile("upload", a.blob, name);
       attachments.push({ id, kind: "audio", name });
     } catch (err) { if (isNetErr(err)) throw err; failed.push(`音声（${fmtSize(a.blob.size)}）`); }
   }
+  saveStep("Notionに保存中…");
   const res = await api({ action: "save", databaseId: note.dbId, text: applyDict(text), props: note.props, attachments });
   note.text = text;
   return { url: res.url, failed };
