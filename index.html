@@ -273,7 +273,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.18-10";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-1";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -592,7 +592,7 @@ function renderAttachments() {
 }
 
 function updateSaveBtn() {
-  const has = getText().trim() || state.images.length || state.audios.some((a) => a.keep || a.needsText);
+  const has = getText().trim() || state.images.length || state.audios.some((a) => a.keep || a.needsText || a.needsSummary);
   $("saveBtn").disabled = state.saving || !state.schema || !has;
   $("saveBtn").textContent = state.saving ? "保存中…" : "保存";
   $("clearBtn").disabled = state.saving || !hasAnyInput();
@@ -786,8 +786,45 @@ function addUsage(kind, sec) {
 }
 function usageSummary() {
   const u = store.get(monthKey()) || { live: 0, file: 0 };
-  const total = yen(u.live, PRICE_LIVE_PER_MIN) + yen(u.file, PRICE_FILE_PER_MIN);
-  return { total, liveMin: u.live / 60, fileMin: u.file / 60 };
+  const sumYen = (u.sumUsd || 0) * YEN_PER_USD;
+  const total = yen(u.live, PRICE_LIVE_PER_MIN) + yen(u.file, PRICE_FILE_PER_MIN) + sumYen;
+  return { total, liveMin: u.live / 60, fileMin: u.file / 60, sumYen, sumN: u.sumN || 0 };
+}
+function addSummaryUsage(usd) {
+  const u = store.get(monthKey()) || { live: 0, file: 0 };
+  u.sumUsd = (u.sumUsd || 0) + (usd > 0 ? usd : 0.02); u.sumN = (u.sumN || 0) + 1;
+  store.set(monthKey(), u);
+}
+
+// ===== 取り込んだ録音をAIでまとめる（議事録アプリの「医師面談」と同じ形）=====
+const isImportSummary = () => store.get("qn.importSummary") !== false;
+async function summarizeToText(transcript) {
+  const fixed = applyDict(transcript);
+  const r = await api({ action: "summarize", transcript: fixed, names: knownNames().slice(0, 80), terms: hintWords().slice(0, 120).join("、") });
+  addSummaryUsage(r.usd);
+  const x = r.result || {};
+  const arr = (v) => (Array.isArray(v) ? v : []).map((t) => String(t ?? "").trim()).filter(Boolean);
+  const sec = (h, lines) => lines.length ? [`## ${h}`, ...lines.map((t) => "- " + t)].join("\n") : "";
+  const title = applyDict(String(x.facility || "").trim()) || splitTitle(fixed).title;
+  const parts = [
+    x.doctor ? String(x.doctor).trim() : "",
+    x.summary ? `## 要約\n${String(x.summary).trim()}` : "",
+    (Array.isArray(x.topics) && x.topics.length) ? ["## 話題", ...x.topics.map((t) => `- ${[String(t.heading || "").trim(), arr(t.points).join("／")].filter(Boolean).join("：")}`)].join("\n") : "",
+    sec("先生の反応", arr(x.reaction)),
+    sec("処方の状況", arr(x.usage)),
+    sec("依頼・宿題", arr(x.requests)),
+    arr(x.next).length ? ["## 次回", ...arr(x.next).map((t) => "[ ] " + t)].join("\n") : "",
+    sec("⚠️ 副作用の可能性", arr(x.ae)),
+    x.veeva ? `## Veeva用\n${String(x.veeva).trim()}` : "",
+    `## 文字起こし\n${fixed.trim()}`,
+  ].filter(Boolean);
+  return applyDict(title + "\n" + parts.join("\n\n"));
+}
+// 入力欄が空ならまとめで埋める。書きかけがあれば本文の後ろに足す
+function placeSummary(text) {
+  if (!getText().trim()) { setText(text); }
+  else { const [, ...rest] = text.split("\n"); insertText(rest.join("\n")); }
+  autoGrow(); saveDraft();
 }
 
 // 録音の状態表示：つながるまでは「準備中」、つながったら「話してください」
@@ -1181,10 +1218,19 @@ async function importOne(file) {
       toast(`文字起こし中…（${trimNote(audio)}）`);
       const text = await transcribeAudio(audio);
       if (!text.trim()) toast("声を聞き取れませんでした（録音は添付しておきます）", true);
+      else if (isImportSummary()) {
+        toast("まとめています…");
+        try { placeSummary(await summarizeToText(text)); toast(`まとめました。${trimNote(audio)}`); }
+        catch (e2) {
+          if (isNetErr(e2)) { audio.needsSummary = true; audio.pendingText = text; toast("電波がないので、まとめは送信するときに行います"); }
+          else { placeTranscript(text); toast("まとめに失敗したので、文字起こしだけ入れました: " + e2.message, true); }
+        }
+      }
       else { placeTranscript(text); toast(`取り込みました。${trimNote(audio)}`); }
     }
   } catch (err) {
     audio.needsText = !audio.tooBig;
+    audio.summarize = isImportSummary();
     toast(audio.tooBig ? err.message
       : isNetErr(err) ? "電波がないので、文字起こしは送信するときに行います" : "文字起こしに失敗しました（送信時にもう一度試します）", !isNetErr(err));
   }
@@ -1214,7 +1260,7 @@ async function importMany(files) {
       text: "",
       props,
       images: [],
-      audios: [{ ...a, needsText: a.txSec !== 0 && !a.tooBig }],
+      audios: [{ ...a, needsText: a.txSec !== 0 && !a.tooBig, summarize: isImportSummary() }],
     });
   }
   updateOutboxBadge();
@@ -1244,9 +1290,10 @@ async function save() {
     text: getText(),
     props: JSON.parse(JSON.stringify(state.values)),
     images: state.images.map((im) => im.file),
-    audios: state.audios.filter((a) => a.keep || a.needsText)
+    audios: state.audios.filter((a) => a.keep || a.needsText || a.needsSummary)
       .map((a) => ({ blob: a.blob, ext: a.ext, sec: a.sec, keep: a.keep, needsText: !!a.needsText,
-        txBlobs: a.txBlobs, txSec: a.txSec, parts: a.parts, tooBig: a.tooBig })),
+        txBlobs: a.txBlobs, txSec: a.txSec, parts: a.parts, tooBig: a.tooBig,
+        summarize: !!a.summarize, needsSummary: !!a.needsSummary, pendingText: a.pendingText || "" })),
   };
   try {
     if (!navigator.onLine) throw new Error("offline");
@@ -1280,10 +1327,18 @@ async function sendNote(note) {
   const attachments = [];
   const failed = [];
   for (const a of note.audios || []) {
-    if (a.needsText) {
-      // 圏外で録音したなどで、まだ文字起こししていない録音
-      text = mergeTranscript(text, await transcribeAudio(a));
+    // 圏外で取り込んだなどで、まだ文字起こし・まとめをしていない録音
+    const t = a.needsText ? await transcribeAudio(a) : a.needsSummary ? a.pendingText : "";
+    if (!t) continue;
+    if (a.summarize || a.needsSummary) {
+      let sum = "";
+      try { sum = await summarizeToText(t); } catch (err) { if (isNetErr(err)) throw err; }
+      if (sum) {
+        text = text.trim() ? text.replace(/\s+$/, "") + "\n\n" + sum.split("\n").slice(1).join("\n") : sum;
+        continue;
+      }
     }
+    text = mergeTranscript(text, t);
   }
   for (const f of note.images || []) {
     try { const name = f.name || `photo-${Date.now()}.jpg`; const { id } = await apiFile("upload", f, name); attachments.push({ id, kind: "image", name }); }
@@ -1511,6 +1566,7 @@ $("sheetBody").addEventListener("click", (e) => {
 });
 $("sheetBody").addEventListener("change", (e) => {
   if (e.target.id === "autoFocusToggle") { store.set("qn.autoFocus", e.target.checked); return; }
+  if (e.target.id === "importSummaryToggle") { store.set("qn.importSummary", e.target.checked); return; }
   if (e.target.id === "kampoHintToggle") { store.set("qn.kampoHint", e.target.checked); liveKey = null; prefetchLiveKey(); return; }
   const id = e.target.dataset.show;
   if (id === undefined) return;
@@ -1647,10 +1703,12 @@ function renderSettings() {
       <span class="t">話しながら文字を表示<br><span class="s">約${fmtYen(PRICE_LIVE_PER_MIN * YEN_PER_USD)}/分・確認しながら話せる</span></span></button>
     <button class="item" data-mode="file"><span class="ic">${isLiveMode() ? "○" : "●"}</span>
       <span class="t">録音だけ・止めたら文字起こし<br><span class="s">約${fmtYen(PRICE_FILE_PER_MIN * YEN_PER_USD)}/分・安い（話している間は文字が出ない）</span></span></button>
+    <div class="item"><span class="t" style="white-space:normal">取り込んだ録音をAIでまとめる<br><span class="s">要約・話題・先生の反応・次回・Veeva用の文など（1件 約3〜5円）</span></span>
+      <input type="checkbox" class="toggle" id="importSummaryToggle" ${isImportSummary() ? "checked" : ""}></div>
     <div class="sep"></div>
     <h2>今月の文字起こし料金（目安）</h2>
     ${(() => { const u = usageSummary(); return `<p class="muted" style="font-size:var(--fs);color:var(--ink)">約${fmtYen(u.total)}</p>
-      <p class="muted">リアルタイム ${u.liveMin.toFixed(1)}分 ／ 録音ファイル ${u.fileMin.toFixed(1)}分<br>この端末で使った分だけの目安です（1ドル=${YEN_PER_USD}円で計算・全アプリ共通のレート）。正確な金額はOpenAIの管理画面で確認できます。</p>`; })()}
+      <p class="muted">リアルタイム ${u.liveMin.toFixed(1)}分 ／ 録音ファイル ${u.fileMin.toFixed(1)}分${u.sumN ? ` ／ まとめ ${u.sumN}件（約${fmtYen(u.sumYen)}）` : ""}<br>この端末で使った分だけの目安です（1ドル=${YEN_PER_USD}円で計算・全アプリ共通のレート）。正確な金額はOpenAIの管理画面で確認できます。</p>`; })()}
     <p class="muted" style="text-align:center">Notion Quick ${APP_VERSION}</p>`);
   checkOfflineReady();
 }

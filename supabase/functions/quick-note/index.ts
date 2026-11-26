@@ -23,6 +23,7 @@ function env(name: string, ...aliases: string[]): string {
 
 const NOTION_API_KEY = env("NOTION_API_KEY", "NOTION_KEY", "NOTION_TOKEN");
 const OPENAI_API_KEY = env("OPENAI_API_KEY", "OPENAI_KEY");
+const ANTHROPIC_API_KEY = env("ANTHROPIC_API_KEY", "CLAUDE_API_KEY");
 const ALLOWED_EMAIL = env("ALLOWED_EMAIL").toLowerCase();
 const TRANSCRIBE_MODEL = env("TRANSCRIBE_MODEL") || "gpt-transcribe";
 const FALLBACK_TRANSCRIBE_MODEL = "gpt-4o-mini-transcribe";
@@ -267,6 +268,50 @@ async function liveToken(hint: string, keywords: string[]) {
   return { value: data.value ?? data.client_secret?.value, model: liveModel };
 }
 
+// ── 取り込んだ録音のまとめ（議事録アプリの「医師面談」と同じ考え方）──
+const VISIT_PROMPT = `以下は製薬会社のMRが医師と面談したとき（または面談の前後に自分で吹き込んだメモ）の文字起こしです。MRがあとで見返し、Veeva（CRM）のコール記録や次回の訪問準備に使えるノートを日本語で作ってください。
+文字起こしには聞き間違いが含まれることがあります。漢方薬の名前・薬剤名・疾患名は文脈から正しい表記に直してください。話されていないことは推測で足さないでください。
+患者の氏名など、個人が特定できる情報は書かないでください（「70代男性」のような書き方にとどめる）。
+副作用・有害事象の可能性がある発言（薬を使った患者に起きた好ましくない症状や検査値の変化など）は、小さなことでも必ず ae に抜き出してください。
+施設名は、下の「施設名の候補」に当てはまるものがあればその表記で書いてください。分からなければ空にしてください。
+次のJSONだけを出力してください（前後に説明文やコードブロックを付けない）:
+{
+  "facility": "施設名（クリニック名・病院名だけ。分からなければ空）",
+  "doctor": "診療科・先生名（分かる範囲。不明なら空）",
+  "summary": "2〜4文の要約",
+  "topics": [{"heading": "話題", "points": ["内容"]}],
+  "reaction": ["先生の反応・関心・印象に残った発言"],
+  "usage": ["処方の状況・使用経験・対象としている患者像"],
+  "requests": ["先生からの依頼・質問・宿題"],
+  "next": ["次回の提案・アクション"],
+  "ae": ["副作用・有害事象の可能性がある発言（なければ空の配列）"],
+  "veeva": "Veevaのコール記録にそのまま貼れる簡潔な記録文（200〜400字、体言止め・箇条書き可）"
+}`;
+
+async function summarize(transcript: string, names: string[], terms: string) {
+  if (!transcript.trim()) throw new HttpError(400, "文字起こしが空です");
+  const model = await setting("quick-note", "summary_model", "claude-sonnet-5-5");
+  const user = `${VISIT_PROMPT}
+${names.length ? `\n施設名の候補: ${names.slice(0, 80).join("、")}` : ""}${terms ? `\nよく出る言葉: ${terms.slice(0, 1500)}` : ""}
+
+--- 文字起こし ---
+${transcript.slice(0, 60000)}`;
+  const d = await fetchJson("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+    body: JSON.stringify({ model, max_tokens: 4000, messages: [{ role: "user", content: user }] }),
+  }, "まとめ（Claude）", 3);
+  // deno-lint-ignore no-explicit-any
+  const raw = (d.content ?? []).map((c: any) => c.text ?? "").join("");
+  const m = raw.match(/\{[\s\S]*\}/);
+  if (!m) throw new HttpError(502, "まとめの形式で返ってきませんでした");
+  // 料金の目安（共通設定の料金表から）
+  // deno-lint-ignore no-explicit-any
+  const price = ((await appSettings("quick-note"))["global.prices"] as any)?.[model];
+  const usd = price ? ((d.usage?.input_tokens ?? 0) * price.in + (d.usage?.output_tokens ?? 0) * price.out) / 1e6 : null;
+  return { result: JSON.parse(m[0]), usd, model };
+}
+
 // ── 保存 ──
 function richText(text: string, size = 1900) {
   const chunks: string[] = [];
@@ -274,6 +319,21 @@ function richText(text: string, size = 1900) {
   return chunks.map((c) => ({ type: "text", text: { content: c } }));
 }
 const paragraph = (t: string) => ({ object: "block", type: "paragraph", paragraph: { rich_text: richText(t) } });
+// 「## 見出し」「- 箇条書き」「[ ] やること」の行は、Notionの見出し・箇条書き・ToDoにする
+function textBlocks(para: string): unknown[] {
+  const out: unknown[] = [];
+  let buf: string[] = [];
+  const flush = () => { if (buf.join("").trim()) out.push(paragraph(buf.join("\n"))); buf = []; };
+  for (const line of para.split("\n")) {
+    let m;
+    if ((m = /^##\s+(.+)/.exec(line))) { flush(); out.push({ object: "block", type: "heading_3", heading_3: { rich_text: richText(m[1].slice(0, 1900)) } }); }
+    else if ((m = /^\[ \]\s+(.+)/.exec(line))) { flush(); out.push({ object: "block", type: "to_do", to_do: { rich_text: richText(m[1]), checked: false } }); }
+    else if ((m = /^[-・]\s+(.+)/.exec(line))) { flush(); out.push({ object: "block", type: "bulleted_list_item", bulleted_list_item: { rich_text: richText(m[1]) } }); }
+    else buf.push(line);
+  }
+  flush();
+  return out;
+}
 
 type Attachment = { id: string; kind: "image" | "audio" | "file"; name?: string };
 
@@ -343,7 +403,7 @@ async function save(input: any) {
   const children: unknown[] = [];
   // 段落ごとに分けて本文に入れる（空行は区切りとして扱う）
   for (const para of bodyText ? bodyText.split(/\n{2,}/) : []) {
-    if (para.trim()) children.push(paragraph(para));
+    if (para.trim()) children.push(...textBlocks(para));
   }
   for (const a of valid) {
     if (filesProp && a.kind === "image") continue;   // プロパティに入れた写真は本文には貼らない
@@ -443,6 +503,9 @@ Deno.serve(async (req) => {
         return json(await getSchema(body.databaseId));
       case "save":
         return json(await save(body));
+      case "summarize":
+        need(["ANTHROPIC_API_KEY", ANTHROPIC_API_KEY]);
+        return json(await summarize(String(body.transcript ?? ""), Array.isArray(body.names) ? body.names.map(String) : [], String(body.terms ?? "")));
       case "live_token":
         need(["OPENAI_API_KEY", OPENAI_API_KEY]);
         return json(await liveToken(String(body.prompt ?? ""), Array.isArray(body.keywords) ? body.keywords : []));
