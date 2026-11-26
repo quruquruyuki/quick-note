@@ -274,7 +274,7 @@ const VISIT_PROMPT = `以下は製薬会社のMRが医師と面談したとき�
 患者の氏名など、個人が特定できる情報は書かないでください（「70代男性」のような書き方にとどめる）。
 副作用・有害事象の可能性がある発言（薬を使った患者に起きた好ましくない症状や検査値の変化など）は、小さなことでも必ず ae に抜き出してください。
 施設名は、下の「施設名の候補」に当てはまるものがあればその表記で書いてください。分からなければ空にしてください。
-結果は save_note ツールで返してください。項目は次の通りです:
+結果は必ず save_note ツールを使って返してください（文章では答えない）。項目は次の通りです:
 {
   "facility": "施設名（クリニック名・病院名だけ。分からなければ空）",
   "doctor": "診療科・先生名（分かる範囲。不明なら空）",
@@ -312,24 +312,26 @@ ${names.length ? `\n施設名の候補: ${names.slice(0, 80).join("、")}` : ""}
 
 --- 文字起こし ---
 ${transcript.slice(0, 60000)}`;
-  const d = await fetchJson("https://api.anthropic.com/v1/messages", {
+  // ツール（save_note）で返してもらう。ツールを使わず文章で返ってきたら、JSONを探して読む。だめなら1回やり直す
+  const ask = () => fetchJson("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": ANTHROPIC_API_KEY, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-    body: JSON.stringify({
-      model, max_tokens: 4000, messages: [{ role: "user", content: user }],
-      tools: [NOTE_TOOL], tool_choice: { type: "tool", name: "save_note" },
-    }),
+    body: JSON.stringify({ model, max_tokens: 6000, messages: [{ role: "user", content: user }], tools: [NOTE_TOOL] }),
   }, "まとめ（Claude）", 3);
   // deno-lint-ignore no-explicit-any
-  let result = (d.content ?? []).find((c: any) => c.type === "tool_use")?.input;
-  if (!result) {
-    // 念のため：文章で返ってきたときはJSONを探して読む
+  let d: any = null, result: any = null;
+  for (let i = 0; i < 2 && !result; i++) {
+    d = await ask();
     // deno-lint-ignore no-explicit-any
-    const raw = (d.content ?? []).map((c: any) => c.text ?? "").join("");
-    const m = raw.match(/\{[\s\S]*\}/);
-    try { result = m ? JSON.parse(m[0]) : null; } catch { result = null; }
-    if (!result) throw new HttpError(502, "まとめの形式で返ってきませんでした。もう一度お試しください");
+    result = (d.content ?? []).find((c: any) => c.type === "tool_use")?.input ?? null;
+    if (!result) {
+      // deno-lint-ignore no-explicit-any
+      const raw = (d.content ?? []).map((c: any) => c.text ?? "").join("");
+      const m = raw.match(/\{[\s\S]*\}/);
+      try { result = m ? JSON.parse(m[0]) : null; } catch { result = null; }
+    }
   }
+  if (!result) throw new HttpError(502, "まとめの形式で返ってきませんでした。もう一度お試しください");
   // 料金の目安（共通設定の料金表から）
   // deno-lint-ignore no-explicit-any
   const price = ((await appSettings("quick-note"))["global.prices"] as any)?.[model];
