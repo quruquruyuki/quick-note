@@ -273,7 +273,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-2";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-3";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -584,7 +584,7 @@ function renderAttachments() {
       <div class="meta">録音 ${i + 1}<small>${a.parts
         ? `声の部分${mmss(a.parts.reduce((t, p) => t + p.sec, 0))}だけ ・ ${a.parts.length}ファイル`
         : `${mmss(a.sec)} ・ <span style="${a.blob.size > NOTION_FILE_LIMIT ? "color:var(--red)" : ""}">${fmtSize(a.blob.size)}${a.blob.size > NOTION_FILE_LIMIT ? " 上限超え" : ""}</span>`}${a.needsText ? " ・ 文字起こしは送信時に行います" : ""}</small></div>
-      <label><input type="checkbox" class="toggle" data-keep="${i}" ${a.keep ? "checked" : ""}>音声も保存</label>
+      <label><input type="checkbox" class="toggle" data-keep="${i}" ${a.keep ? "checked" : ""}>Notionに保存</label>
       <button class="del" data-del-audio="${i}"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     </div>`;
   });
@@ -798,6 +798,7 @@ function addSummaryUsage(usd) {
 
 // ===== 取り込んだ録音をAIでまとめる（議事録アプリの「医師面談」と同じ形）=====
 const isImportSummary = () => store.get("qn.importSummary") !== false;
+const isKeepAudio = () => store.get("qn.keepAudio") !== false;   // 録音もNotionに保存する（最初の状態）
 async function summarizeToText(transcript) {
   const fixed = applyDict(transcript);
   const r = await api({ action: "summarize", transcript: fixed, names: knownNames().slice(0, 80), terms: hintWords().slice(0, 120).join("、") });
@@ -992,7 +993,12 @@ async function onRecStop() {
   const mime = (r.mr.mimeType || r.chunks[0]?.type || "audio/mp4");
   const ext = extOf(mime);
   const blob = size ? new Blob(r.chunks, { type: mime.split(";")[0] }) : null;
-  const audio = blob && size >= 2000 ? { blob, url: URL.createObjectURL(blob), ext, sec, keep: blob.size <= NOTION_FILE_LIMIT } : null;
+  const audio = blob && size >= 2000 ? { blob, url: URL.createObjectURL(blob), ext, sec, keep: isKeepAudio() } : null;
+  // 4.7MBを超える録音は、声の部分だけを小さくして4.7MBずつに分けて保存する
+  if (audio && blob.size > ATTACH_LIMIT) {
+    try { const info = await extractSpeech(blob); if (info.speechSec > 0.5) audio.parts = attachParts(info.speech); else audio.keep = false; }
+    catch (e) { console.warn("parts", e); audio.keep = false; }
+  }
   try {
     let text = lt;
     let extra = "";
@@ -1169,7 +1175,7 @@ async function prepareImport(file) {
   let info = null;
   try { info = await extractSpeech(blob); } catch (e) { console.warn("extractSpeech", e); }
   const sec = info ? info.totalSec : await audioDuration(blob);
-  const audio = { blob, ext, sec, keep: blob.size <= ATTACH_LIMIT };
+  const audio = { blob, ext, sec, keep: blob.size <= ATTACH_LIMIT };   // keep は下で設定に合わせる
   if (info && info.speechSec > 0.5) {
     audio.txBlobs = info.chunks;          // 文字起こしに送るのは声のある部分だけ
     audio.txSec = info.speechSec;
@@ -1180,6 +1186,7 @@ async function prepareImport(file) {
   } else if (blob.size > 24 * 1024 * 1024) {
     audio.tooBig = true;                  // 抜き出しもできず、そのままでは大きすぎる
   }
+  if (!isKeepAudio()) audio.keep = false;   // 設定で「録音もNotionに保存する」がオフ
   return audio;
 }
 // 文字起こし（分割されていれば順番に）。料金の記録もここで
@@ -1363,9 +1370,9 @@ async function sendNote(note) {
       continue;
     }
     try {
-      const { id } = await apiFile("upload", a.blob, `voice-${Date.now()}.${a.ext}`);
-      // webm は Notion の音声ブロックが対応していないのでファイルとして添付
-      attachments.push({ id, kind: a.ext === "webm" ? "file" : "audio" });
+      const name = `voice-${Date.now()}.${a.ext}`;
+      const { id } = await apiFile("upload", a.blob, name);
+      attachments.push({ id, kind: "audio", name });
     } catch (err) { if (isNetErr(err)) throw err; failed.push(`音声（${fmtSize(a.blob.size)}）`); }
   }
   const res = await api({ action: "save", databaseId: note.dbId, text: applyDict(text), props: note.props, attachments });
@@ -1573,6 +1580,7 @@ $("sheetBody").addEventListener("click", (e) => {
 });
 $("sheetBody").addEventListener("change", (e) => {
   if (e.target.id === "autoFocusToggle") { store.set("qn.autoFocus", e.target.checked); return; }
+  if (e.target.id === "keepAudioToggle") { store.set("qn.keepAudio", e.target.checked); return; }
   if (e.target.id === "importSummaryToggle") { store.set("qn.importSummary", e.target.checked); return; }
   if (e.target.id === "kampoHintToggle") { store.set("qn.kampoHint", e.target.checked); liveKey = null; prefetchLiveKey(); return; }
   const id = e.target.dataset.show;
@@ -1710,6 +1718,8 @@ function renderSettings() {
       <span class="t">話しながら文字を表示<br><span class="s">約${fmtYen(PRICE_LIVE_PER_MIN * YEN_PER_USD)}/分・確認しながら話せる</span></span></button>
     <button class="item" data-mode="file"><span class="ic">${isLiveMode() ? "○" : "●"}</span>
       <span class="t">録音だけ・止めたら文字起こし<br><span class="s">約${fmtYen(PRICE_FILE_PER_MIN * YEN_PER_USD)}/分・安い（話している間は文字が出ない）</span></span></button>
+    <div class="item"><span class="t" style="white-space:normal">録音もNotionに保存する<br><span class="s">ファイルのプロパティに入れます。4.7MBを超えたら声の部分だけを4.7MBずつに分けます</span></span>
+      <input type="checkbox" class="toggle" id="keepAudioToggle" ${isKeepAudio() ? "checked" : ""}></div>
     <div class="item"><span class="t" style="white-space:normal">録音をAIでまとめる<br><span class="s">要約・話題・先生の反応・次回・Veeva用の文など（1件 約3〜5円）</span></span>
       <input type="checkbox" class="toggle" id="importSummaryToggle" ${isImportSummary() ? "checked" : ""}></div>
     <div class="sep"></div>

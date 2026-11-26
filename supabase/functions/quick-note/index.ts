@@ -386,16 +386,24 @@ async function save(input: any) {
     }
   }
 
-  // 写真は、DBに「ファイル&メディア」のプロパティがあればそこに入れる（なければ本文に貼る）
-  const filesProp = schema.properties.find((p) => p.type === "files");
+  // 写真と録音は、DBにファイルのプロパティ（「ファイル&メディア」など）があればそこに入れる（なければ本文に貼る）
+  // 「音声」「録音」という名前のファイルのプロパティがあれば、録音はそちらに分けて入れる
+  const filesProps = schema.properties.filter((p) => p.type === "files");
+  const audioProp = filesProps.find((p) => /音声|録音|audio|voice/i.test(p.name)) ?? filesProps[0];
+  const imageProp = filesProps.find((p) => p !== audioProp && !/音声|録音|audio|voice/i.test(p.name)) ?? filesProps[0];
   const valid = attachments.filter((a) => a && typeof a.id === "string");
-  const images = valid.filter((a) => a.kind === "image");
-  if (filesProp && images.length) {
-    properties[filesProp.name] = {
-      files: images.map((a, i) => ({
+  const propOf = (a: Attachment) => a.kind === "image" ? imageProp : a.kind === "audio" ? audioProp : undefined;
+  const inProp = new Map<string, Attachment[]>();
+  for (const a of valid) {
+    const p = propOf(a);
+    if (p) inProp.set(p.name, [...(inProp.get(p.name) ?? []), a]);
+  }
+  for (const [name, list] of inProp) {
+    properties[name] = {
+      files: list.map((a, i) => ({
         type: "file_upload",
         file_upload: { id: a.id },
-        name: (a.name || `photo-${i + 1}.jpg`).slice(0, 100),
+        name: (a.name || (a.kind === "image" ? `photo-${i + 1}.jpg` : `voice-${i + 1}.m4a`)).slice(0, 100),
       })),
     };
   }
@@ -406,7 +414,7 @@ async function save(input: any) {
     if (para.trim()) children.push(...textBlocks(para));
   }
   for (const a of valid) {
-    if (filesProp && a.kind === "image") continue;   // プロパティに入れた写真は本文には貼らない
+    if (propOf(a)) continue;   // プロパティに入れた写真・録音は本文には貼らない
     children.push(attachmentBlock(a));
   }
 
