@@ -284,7 +284,7 @@
 const SUPABASE_URL = "https://oqtyorwlrnrcyjxiassg.supabase.co";
 const SUPABASE_KEY = "sb_publishable_5KRsDfHG07lsUL7uUr6zpQ_2ehucxbJ"; // 公開用キー（ブラウザに置いてOK）
 const FN = "quick-note";
-const APP_VERSION = "2026.11.26-5";     // 更新のたびに変える
+const APP_VERSION = "2026.11.26-6";     // 更新のたびに変える
 const DEFAULT_DB_TITLE = "日報";          // 初回だけ、この名前のDBをデフォルトにする
 const AUTO_CHECK_ON_AUDIO = "音声";        // 録音したら、この名前のチェックボックスを自動でON
 // ── 録音しっぱなし防止 ──
@@ -354,13 +354,13 @@ const dbIconHtml = (d) => d?.icon ? esc(d.icon) : PAGE_ICON;
 let toastTimer;
 // ===== 作業中の表示（ステータスバー）=====
 // busy("文字起こし中 1/3", 1/3) … 進み具合つき ／ busy("まとめ中") … 進み具合なし ／ busy(null) … 消す
-let busyStart = 0, busyTimer = 0;
+let busyStart = 0, busyTimer = 0, busyPrefix = "";
 function busy(msg, frac) {
   const el = $("busy");
   if (!el) return;
   if (!msg) { el.classList.add("hidden"); clearInterval(busyTimer); busyTimer = 0; busyStart = 0; return; }
   if (!busyStart) busyStart = Date.now();
-  $("busyText").textContent = msg;
+  $("busyText").textContent = (state.saving ? "" : busyPrefix) + msg;
   const track = $("busyTrack");
   if (typeof frac === "number") { track.classList.remove("indet"); $("busyFill").style.width = Math.max(4, Math.min(100, frac * 100)) + "%"; }
   else { track.classList.add("indet"); $("busyFill").style.width = ""; }
@@ -1378,20 +1378,26 @@ async function sendNote(note) {
   let text = note.text || "";
   const attachments = [];
   const failed = [];
+  // 途中まで終わった分（文字起こし・まとめ）は端末のノートに書き戻す。送り直すときに同じ料金を二重に払わないように
+  const persist = async () => { note.text = text; if (note.fromOutbox) { try { await outbox.put(note); } catch {} } };
   for (const a of note.audios || []) {
     // 圏外で取り込んだなどで、まだ文字起こし・まとめをしていない録音
-    const t = a.needsText ? await transcribeAudio(a) : a.needsSummary ? a.pendingText : "";
-    if (!t) continue;
-    if (a.summarize || a.needsSummary) {
+    if (a.needsText) {
+      const t = await transcribeAudio(a);
+      a.needsText = false; a.txBlobs = null;
+      if (t && a.summarize) { a.needsSummary = true; a.pendingText = t; }
+      else if (t) text = mergeTranscript(text, t);
+      await persist();
+    }
+    if (a.needsSummary && a.pendingText) {
       saveStep("AIでまとめ中…");
       let sum = "";
-      try { sum = await summarizeToText(t); } catch (err) { if (isNetErr(err)) throw err; }
-      if (sum) {
-        text = text.trim() ? text.replace(/\s+$/, "") + "\n\n" + sum.split("\n").slice(1).join("\n") : sum;
-        continue;
-      }
+      try { sum = await summarizeToText(a.pendingText); } catch (err) { if (isNetErr(err)) throw err; }
+      text = sum ? (text.trim() ? text.replace(/\s+$/, "") + "\n\n" + sum.split("\n").slice(1).join("\n") : sum)
+                 : mergeTranscript(text, a.pendingText);
+      a.needsSummary = false; a.pendingText = "";
+      await persist();
     }
-    text = mergeTranscript(text, t);
   }
   for (const f of note.images || []) {
     try { const name = f.name || `photo-${Date.now()}.jpg`; const { id } = await apiFile("upload", f, name); attachments.push({ id, kind: "image", name }); }
@@ -1481,10 +1487,13 @@ async function flushOutbox(manual = false) {
   flushing = true;
   let sent = 0;
   try {
-    const list = await outbox.all();
+    // 自動で送り直すのは3回まで（失敗し続けるノートで料金がかさまないように）。それ以上は「保存されたノート」から手動で
+    const list = (await outbox.all()).filter((n) => manual || (n.tries || 0) < 3);
     for (const [ni, note] of list.entries()) {
       try {
-        if (!state.saving) busy(`端末に保存したノートを送信中 ${ni + 1}/${list.length}…`, ni / list.length);
+        note.fromOutbox = true;
+        busyPrefix = list.length > 1 ? `端末のノート ${ni + 1}/${list.length} を送信中：` : "端末のノートを送信中：";
+        if (!state.saving) busy("準備中…", ni / list.length);
         const res = await sendNote(note);
         await outbox.del(note.id);
         addSent(note, res.url);
@@ -1492,11 +1501,12 @@ async function flushOutbox(manual = false) {
       } catch (err) {
         if (isNetErr(err)) break;   // まだつながらない → また後で
         note.lastError = String(err?.message || err);
+        note.tries = (note.tries || 0) + 1;
         await outbox.put(note);
       }
     }
   } finally {
-    flushing = false;
+    flushing = false; busyPrefix = "";
     if (!state.saving) busy(null);
     updateOutboxBadge();
     if (sent) { toast(`端末に保存していた${sent}件をNotionに送りました`); refreshNames(state.dbId); }
